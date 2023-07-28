@@ -28,11 +28,11 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
     // Terraswap config (Router and Pair contract addresses)
     CONFIG.save(deps.storage, &msg.config)?;
-    OWNER.save(deps.storage, &info.sender)?;
+    OWNER.save(deps.storage, &msg.owner)?;
 
     // Buy - Sell - Transfer Taxes
     TAX_INFO.save(deps.storage, &msg.tax_info)?;
-    COLLECTING_TAX_ADDRESS.save(deps.storage, &info.sender)?;
+    COLLECTING_TAX_ADDRESS.save(deps.storage, &msg.owner)?;
 
     cw20_instantiate(deps, env, info, msg.cw20_instantiate_msg)
 }
@@ -442,7 +442,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
-mod query {
+pub mod query {
     use cosmwasm_std::Decimal;
 
     use super::*;

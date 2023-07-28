@@ -3,7 +3,6 @@ use cw20_base::ContractError;
 use msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
 
 pub mod contract;
-pub mod error;
 pub mod msg;
 pub mod state;
 
@@ -31,3 +30,6 @@ pub fn execute(
 ) -> Result<Response, ContractError> {
     contract::execute(deps, env, info, msg)
 }
+
+#[cfg(test)]
+mod testing;

@@ -7,6 +7,7 @@ use crate::state::{Config, FractionFormat, TaxInfo};
 
 #[cw_serde]
 pub struct InstantiateMsg {
+    pub owner: Addr,
     pub config: Config,
     pub tax_info: TaxInfo,
     pub cw20_instantiate_msg: Cw20InstantiateMsg,
