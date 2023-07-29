@@ -20,6 +20,8 @@ use cw20_base::{
     ContractError,
 };
 
+const SWAP_COLLECTED_TAX_THRESHOLD: Uint128 = Uint128::new(1_000_000_000_000 / 20_000);
+
 pub fn instantiate(
     deps: DepsMut,
     env: Env,
@@ -32,7 +34,8 @@ pub fn instantiate(
 
     // Buy - Sell - Transfer Taxes
     TAX_INFO.save(deps.storage, &msg.tax_info)?;
-    COLLECTING_TAX_ADDRESS.save(deps.storage, &msg.owner)?;
+    COLLECT_TAX_ADDRESS.save(deps.storage, &msg.owner)?;
+    TAX_FREE_ADDRESSES.save(deps.storage, msg.owner, &true)?;
 
     cw20_instantiate(deps, env, info, msg.cw20_instantiate_msg)
 }
@@ -88,15 +91,15 @@ pub fn execute(
         ExecuteMsg::UploadLogo(logo) => execute_upload_logo(deps, env, info, logo),
 
         // ======= Extend executes for cremation-coin =======
-        ExecuteMsg::ChangeOwner { owner } => execute::change_owner(deps, env, info, owner),
-        ExecuteMsg::ChangeCollectingTaxAddress { address } => {
-            execute::change_collecting_tax_address(deps, env, info, address)
-        }
-        ExecuteMsg::ChangeTaxInfo {
+        ExecuteMsg::UpdateOwner { new_owner } => execute::update_owner(deps, env, info, new_owner),
+        ExecuteMsg::UpdateCollectTaxAddress {
+            new_collect_tax_addr,
+        } => execute::update_collecting_tax_address(deps, env, info, new_collect_tax_addr),
+        ExecuteMsg::UpdateTaxInfo {
             buy_tax,
             sell_tax,
             transfer_tax,
-        } => execute::change_tax_info(deps, env, info, buy_tax, sell_tax, transfer_tax),
+        } => execute::update_tax_info(deps, env, info, buy_tax, sell_tax, transfer_tax),
         ExecuteMsg::SetTaxFreeAddress { address, tax_free } => {
             execute::set_tax_free_address(deps, env, info, address, tax_free)
         }
@@ -104,16 +107,19 @@ pub fn execute(
 }
 
 pub mod execute {
+    use cosmwasm_std::CosmosMsg;
+
     use super::*;
 
     pub fn send(
         deps: DepsMut,
-        _env: Env,
+        env: Env,
         info: MessageInfo,
         contract: String,
         amount: Uint128,
         msg: Binary,
     ) -> Result<Response, ContractError> {
+        let config = CONFIG.load(deps.storage)?;
         let sender_addr = info.sender;
         let rcpt_addr = deps.api.addr_validate(&contract)?;
         let tax_amount = compute_tax(deps.storage, &sender_addr, &rcpt_addr, amount);
@@ -131,14 +137,21 @@ pub mod execute {
         }
 
         // create a send message
-        let msg = Cw20ReceiveMsg {
-            sender: sender_addr.into(),
+        let mut messages = vec![Cw20ReceiveMsg {
+            sender: sender_addr.to_string(),
             amount,
             msg,
         }
-        .into_cosmos_msg(contract)?;
+        .into_cosmos_msg(contract)?];
 
-        let res = Response::new().add_message(msg).add_attributes(attrs);
+        if is_sell_operation(&config, sender_addr, rcpt_addr) {
+            let msg_opt = swap_collected_tax_to_native(deps.as_ref(), env, config.terraswap_router);
+            if let Some(swap_msg) = msg_opt {
+                messages.push(swap_msg)
+            }
+        }
+
+        let res = Response::new().add_messages(messages).add_attributes(attrs);
         Ok(res)
     }
 
@@ -151,6 +164,7 @@ pub mod execute {
         amount: Uint128,
         msg: Binary,
     ) -> Result<Response, ContractError> {
+        let config = CONFIG.load(deps.storage)?;
         let owner_addr = deps.api.addr_validate(&owner)?;
         let rcpt_addr = deps.api.addr_validate(&contract)?;
         let tax_amount = compute_tax(deps.storage, &owner_addr, &rcpt_addr, amount);
@@ -171,24 +185,32 @@ pub mod execute {
         }
 
         // create a send message
-        let msg = Cw20ReceiveMsg {
+        let mut messages = vec![Cw20ReceiveMsg {
             sender: info.sender.into(),
             amount,
             msg,
         }
-        .into_cosmos_msg(contract)?;
+        .into_cosmos_msg(contract)?];
 
-        let res = Response::new().add_message(msg).add_attributes(attrs);
+        if is_sell_operation(&config, owner_addr, rcpt_addr) {
+            let msg_opt = swap_collected_tax_to_native(deps.as_ref(), env, config.terraswap_router);
+            if let Some(swap_msg) = msg_opt {
+                messages.push(swap_msg)
+            }
+        }
+
+        let res = Response::new().add_messages(messages).add_attributes(attrs);
         Ok(res)
     }
 
     pub fn transfer(
         deps: DepsMut,
-        _env: Env,
+        env: Env,
         info: MessageInfo,
         recipient: String,
         amount: Uint128,
     ) -> Result<Response, ContractError> {
+        let config = CONFIG.load(deps.storage)?;
         let sender_addr = info.sender;
         let rcpt_addr = deps.api.addr_validate(&recipient)?;
         let tax_amount = compute_tax(deps.storage, &sender_addr, &rcpt_addr, amount);
@@ -205,8 +227,14 @@ pub mod execute {
             attrs.push(attr("tax_amount", tax));
         }
 
-        let res = Response::new().add_attributes(attrs);
-        Ok(res)
+        if is_sell_operation(&config, sender_addr, rcpt_addr) {
+            let msg_opt = swap_collected_tax_to_native(deps.as_ref(), env, config.terraswap_router);
+            if let Some(swap_msg) = msg_opt {
+                return Ok(Response::new().add_message(swap_msg).add_attributes(attrs));
+            }
+        }
+
+        Ok(Response::new().add_attributes(attrs))
     }
 
     pub fn transfer_from(
@@ -217,6 +245,7 @@ pub mod execute {
         recipient: String,
         amount: Uint128,
     ) -> Result<Response, ContractError> {
+        let config = CONFIG.load(deps.storage)?;
         let rcpt_addr = deps.api.addr_validate(&recipient)?;
         let owner_addr = deps.api.addr_validate(&owner)?;
         let tax_amount = compute_tax(deps.storage, &owner_addr, &rcpt_addr, amount);
@@ -236,8 +265,16 @@ pub mod execute {
             attrs.push(attr("tax_amount", tax));
         }
 
-        let res = Response::new().add_attributes(attrs);
-        Ok(res)
+        if is_sell_operation(&config, owner_addr, rcpt_addr) {
+            let msg_opt = swap_collected_tax_to_native(deps.as_ref(), env, config.terraswap_router);
+            if let Some(swap_msg) = msg_opt {
+                return Ok(Response::new()
+                    .add_messages(vec![swap_msg])
+                    .add_attributes(attrs));
+            }
+        }
+
+        Ok(Response::new().add_attributes(attrs))
     }
 
     fn update_balance_with_tax(
@@ -254,7 +291,7 @@ pub mod execute {
         match tax_amount {
             Some(tax) => {
                 let received_amount = amount.checked_sub(tax)?;
-                let collecting_tax_addr = COLLECTING_TAX_ADDRESS.load(storage)?;
+                let collecting_tax_addr = COLLECT_TAX_ADDRESS.load(storage)?;
                 assert_eq!(received_amount + tax, amount);
 
                 BALANCES.update(storage, &to, |balance: Option<Uint128>| -> StdResult<_> {
@@ -292,10 +329,10 @@ pub mod execute {
             return None;
         }
 
-        match (
-            from == &config.terraswap_pair, // receive token from terraswap pair -> buy
-            to == &config.terraswap_router, // send token to terraswap router -> sell
-        ) {
+        let is_buy = is_buy_operation(&config, from.to_owned(), to.to_owned());
+        let is_sell = is_sell_operation(&config, from.to_owned(), to.to_owned());
+
+        match (is_buy, is_sell) {
             (true, false) => match tax_info.buy_tax {
                 Some(tax) => {
                     let tax_amount = amount
@@ -338,35 +375,82 @@ pub mod execute {
         }
     }
 
-    pub fn change_owner(
+    // TODO
+    fn swap_collected_tax_to_native(
+        deps: Deps,
+        env: Env,
+        terraswap_router: Addr,
+    ) -> Option<CosmosMsg> {
+        // check balance of collected tax address
+        let collect_tax_addr = COLLECT_TAX_ADDRESS.load(deps.storage).unwrap();
+        let collected_tax_amount = BALANCES.load(deps.storage, &collect_tax_addr).unwrap();
+        if collected_tax_amount < SWAP_COLLECTED_TAX_THRESHOLD {
+            return None;
+        }
+
+        // swap collected tax to native token
+        let cw20_receive_msg = Cw20ReceiveMsg {
+            sender: collect_tax_addr.to_string(),
+            amount: collected_tax_amount,
+            msg: to_binary(&Cw20HookMsg::ExecuteSwapOperations {
+                operations: vec![SwapOperation::TerraSwap {
+                    offer_asset_info: AssetInfo::Token {
+                        contract_addr: env.contract.address.into(),
+                    },
+                    ask_asset_info: AssetInfo::NativeToken {
+                        denom: "uluna".to_string(),
+                    },
+                }],
+                minimum_receive: None,
+                to: Some(collect_tax_addr.to_string()),
+                deadline: None,
+            })
+            .unwrap(),
+        };
+        let msg = cw20_receive_msg.into_cosmos_msg(terraswap_router).unwrap();
+        Some(msg)
+    }
+
+    // receive token from terraswap pair
+    fn is_buy_operation(config: &Config, from: Addr, _to: Addr) -> bool {
+        from == config.terraswap_pair
+    }
+
+    // send token to terraswap router, or terraswap pair
+    fn is_sell_operation(config: &Config, from: Addr, to: Addr) -> bool {
+        to == config.terraswap_router
+            || (from != config.terraswap_router && to == config.terraswap_pair)
+    }
+
+    pub fn update_owner(
         deps: DepsMut,
         _env: Env,
         info: MessageInfo,
-        owner: Addr,
+        new_owner: Addr,
     ) -> Result<Response, ContractError> {
-        let owner_addr = OWNER.load(deps.storage)?;
-        if info.sender != owner_addr {
+        let current_owner = OWNER.load(deps.storage)?;
+        if info.sender != current_owner {
             return Err(ContractError::Unauthorized {});
         }
-        OWNER.save(deps.storage, &owner)?;
+        OWNER.save(deps.storage, &new_owner)?;
         Ok(Response::new())
     }
 
-    pub fn change_collecting_tax_address(
+    pub fn update_collecting_tax_address(
         deps: DepsMut,
         _env: Env,
         info: MessageInfo,
-        collecting_tax_address: Addr,
+        new_collect_tax_addr: Addr,
     ) -> Result<Response, ContractError> {
-        let owner_addr = OWNER.load(deps.storage)?;
-        if info.sender != owner_addr {
+        let owner = OWNER.load(deps.storage)?;
+        if info.sender != owner {
             return Err(ContractError::Unauthorized {});
         }
-        COLLECTING_TAX_ADDRESS.save(deps.storage, &collecting_tax_address)?;
+        COLLECT_TAX_ADDRESS.save(deps.storage, &new_collect_tax_addr)?;
         Ok(Response::new())
     }
 
-    pub fn change_tax_info(
+    pub fn update_tax_info(
         deps: DepsMut,
         _env: Env,
         info: MessageInfo,
@@ -374,8 +458,8 @@ pub mod execute {
         sell_tax: Option<FractionFormat>,
         transfer_tax: Option<FractionFormat>,
     ) -> Result<Response, ContractError> {
-        let owner_addr = OWNER.load(deps.storage)?;
-        if info.sender != owner_addr {
+        let owner = OWNER.load(deps.storage)?;
+        if info.sender != owner {
             return Err(ContractError::Unauthorized {});
         }
         let tax_info = TaxInfo {
@@ -394,8 +478,8 @@ pub mod execute {
         address: Addr,
         tax_free: bool,
     ) -> Result<Response, ContractError> {
-        let owner_addr = OWNER.load(deps.storage)?;
-        if info.sender != owner_addr {
+        let owner = OWNER.load(deps.storage)?;
+        if info.sender != owner {
             return Err(ContractError::Unauthorized {});
         }
         TAX_FREE_ADDRESSES.save(deps.storage, address, &tax_free)?;
@@ -436,7 +520,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         // ======= Extend queries for cremation-coin =======
         QueryMsg::Config {} => to_binary(&query::config(deps)?),
         QueryMsg::Owner {} => to_binary(&query::owner(deps)?),
-        QueryMsg::CollectingTaxAddress {} => to_binary(&query::collecting_tax_address(deps)?),
+        QueryMsg::CollectTaxAddress {} => to_binary(&query::collect_tax_address(deps)?),
         QueryMsg::TaxInfo {} => to_binary(&query::tax_info(deps)?),
         QueryMsg::TaxFreeAddress { address } => to_binary(&query::tax_free_address(deps, address)?),
     }
@@ -460,9 +544,9 @@ pub mod query {
         Ok(OwnerResponse { owner })
     }
 
-    pub fn collecting_tax_address(deps: Deps) -> StdResult<CollectingTaxAddressResponse> {
-        let collect_tax_address = COLLECTING_TAX_ADDRESS.load(deps.storage)?;
-        Ok(CollectingTaxAddressResponse {
+    pub fn collect_tax_address(deps: Deps) -> StdResult<CollectTaxAddressResponse> {
+        let collect_tax_address = COLLECT_TAX_ADDRESS.load(deps.storage)?;
+        Ok(CollectTaxAddressResponse {
             collect_tax_address,
         })
     }
@@ -490,10 +574,10 @@ pub mod query {
 
     pub fn tax_free_address(deps: Deps, address: String) -> StdResult<TaxFreeAddressResponse> {
         let addr = deps.api.addr_validate(&address)?;
-        let tax_free = TAX_FREE_ADDRESSES.load(deps.storage, addr.clone())?;
-        Ok(TaxFreeAddressResponse {
-            address: addr,
-            tax_free,
-        })
+        let tax_free_opt = TAX_FREE_ADDRESSES.may_load(deps.storage, addr.clone())?;
+        match tax_free_opt {
+            Some(tax_free) => Ok(TaxFreeAddressResponse { tax_free }),
+            None => Ok(TaxFreeAddressResponse { tax_free: false }),
+        }
     }
 }

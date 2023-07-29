@@ -96,13 +96,13 @@ pub enum ExecuteMsg {
     UploadLogo(Logo),
 
     // ======= Extend executes for cremation-coin =======
-    ChangeOwner {
-        owner: Addr,
+    UpdateOwner {
+        new_owner: Addr,
     },
-    ChangeCollectingTaxAddress {
-        address: Addr,
+    UpdateCollectTaxAddress {
+        new_collect_tax_addr: Addr,
     },
-    ChangeTaxInfo {
+    UpdateTaxInfo {
         buy_tax: Option<FractionFormat>,
         sell_tax: Option<FractionFormat>,
         transfer_tax: Option<FractionFormat>,
@@ -173,8 +173,8 @@ pub enum QueryMsg {
     Config {},
     #[returns(OwnerResponse)]
     Owner {},
-    #[returns(CollectingTaxAddressResponse)]
-    CollectingTaxAddress {},
+    #[returns(CollectTaxAddressResponse)]
+    CollectTaxAddress {},
     /// Returns the current tax info of the contract.
     /// - buy_tax: Tax rate for buy
     /// - sell_tax: Tax rate for sell
@@ -183,6 +183,34 @@ pub enum QueryMsg {
     TaxInfo {},
     #[returns(TaxFreeAddressResponse)]
     TaxFreeAddress { address: String },
+}
+
+#[cw_serde]
+pub enum AssetInfo {
+    Token { contract_addr: String },
+    NativeToken { denom: String },
+}
+
+#[cw_serde]
+pub enum SwapOperation {
+    NativeSwap {
+        offer_denom: String,
+        ask_denom: String,
+    },
+    TerraSwap {
+        offer_asset_info: AssetInfo,
+        ask_asset_info: AssetInfo,
+    },
+}
+
+#[cw_serde]
+pub enum Cw20HookMsg {
+    ExecuteSwapOperations {
+        operations: Vec<SwapOperation>,
+        minimum_receive: Option<Uint128>,
+        to: Option<String>,
+        deadline: Option<u64>,
+    },
 }
 
 #[cw_serde]
@@ -204,12 +232,11 @@ pub struct OwnerResponse {
 }
 
 #[cw_serde]
-pub struct CollectingTaxAddressResponse {
+pub struct CollectTaxAddressResponse {
     pub collect_tax_address: Addr,
 }
 
 #[cw_serde]
 pub struct TaxFreeAddressResponse {
-    pub address: Addr,
     pub tax_free: bool,
 }

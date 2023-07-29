@@ -23,7 +23,7 @@ pub struct TaxInfo {
 }
 pub const TAX_INFO: Item<TaxInfo> = Item::new("tax_info");
 
-pub const COLLECTING_TAX_ADDRESS: Item<Addr> = Item::new("collecting_tax_address");
+pub const COLLECT_TAX_ADDRESS: Item<Addr> = Item::new("collect_tax_address");
 pub const TAX_FREE_ADDRESSES: Map<Addr, bool> = Map::new("tax_free_addresses");
 
 pub const OWNER: Item<Addr> = Item::new("owner");
