@@ -1,5 +1,5 @@
 [package]
-name = "cremation_token"
+name = "cremation-token"
 version = "0.1.0"
 edition = "2021"
 
