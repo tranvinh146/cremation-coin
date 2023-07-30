@@ -1,5 +1,5 @@
 [package]
-name = "cremation_lock"
+name = "cremation-lock"
 version = "0.1.0"
 edition = "2021"
 
