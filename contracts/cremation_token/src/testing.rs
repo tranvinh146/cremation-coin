@@ -13,7 +13,7 @@ use crate::{
         QueryMsg, TaxFreeAddressResponse, TaxInfoResponse,
     },
     query,
-    state::{Config, FractionFormat, TaxInfo},
+    state::{FractionFormat, TaxInfo},
 };
 
 fn mock_cw20_instantiate_msg(initial_balances: Vec<Cw20Coin>) -> Cw20InstantiateMsg {
@@ -31,8 +31,8 @@ fn mock_cw20_instantiate_msg(initial_balances: Vec<Cw20Coin>) -> Cw20Instantiate
 fn proper_initialization() {
     let mut deps = mock_dependencies();
     let env = mock_env();
+    let creator = "creator";
     let owner = "owner";
-    let info = mock_info("deployer", &[]);
     let tax_rate = FractionFormat {
         numerator: Uint128::new(8),
         denominator: Uint128::new(100),
@@ -40,10 +40,6 @@ fn proper_initialization() {
     let total_supply = Uint128::new(1_000_000_000_000);
     let msg = InstantiateMsg {
         owner: Addr::unchecked(owner),
-        config: Config {
-            terraswap_pair: Addr::unchecked("terraswap_pair"),
-            terraswap_router: Addr::unchecked("terraswap_router"),
-        },
         tax_info: TaxInfo {
             buy_tax: Some(tax_rate.clone()),
             sell_tax: Some(tax_rate.clone()),
@@ -61,7 +57,18 @@ fn proper_initialization() {
             marketing: None,
         },
     };
-    let _res = instantiate(deps.as_mut(), env, info, msg).unwrap();
+    instantiate(deps.as_mut(), env, mock_info(creator, &[]), msg).unwrap();
+    // set config
+    execute(
+        deps.as_mut(),
+        mock_env(),
+        mock_info(creator, &[]),
+        ExecuteMsg::SetConfig {
+            terraswap_router: Addr::unchecked("terraswap_router"),
+            terraswap_pair: Addr::unchecked("terraswap_pair"),
+        },
+    )
+    .unwrap();
 
     // check token_info
     let token_info_query = query(deps.as_ref(), mock_env(), QueryMsg::TokenInfo {}).unwrap();
@@ -145,14 +152,11 @@ fn proper_initialization() {
 fn update_owner() {
     let mut deps = mock_dependencies();
     let env = mock_env();
+    let creator = "creator";
     let owner = "owner";
-    let info = mock_info("deployer", &[]);
+    let info = mock_info(creator, &[]);
     let msg = InstantiateMsg {
         owner: Addr::unchecked(owner),
-        config: Config {
-            terraswap_pair: Addr::unchecked("not_care"),
-            terraswap_router: Addr::unchecked("not_care"),
-        },
         tax_info: TaxInfo {
             buy_tax: None,
             sell_tax: None,
@@ -160,7 +164,12 @@ fn update_owner() {
         },
         cw20_instantiate_msg: mock_cw20_instantiate_msg(vec![]),
     };
-    let _res = instantiate(deps.as_mut(), env, info, msg).unwrap();
+    let _res = instantiate(deps.as_mut(), env, info.clone(), msg).unwrap();
+    let msg: ExecuteMsg = ExecuteMsg::SetConfig {
+        terraswap_router: Addr::unchecked("terraswap_router"),
+        terraswap_pair: Addr::unchecked("terraswap_pair"),
+    };
+    let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     // fail to change owner with non-owner
     let non_owner = "non_owner";
@@ -190,17 +199,13 @@ fn update_tax_info() {
     let mut deps = mock_dependencies();
     let env = mock_env();
     let owner = "owner";
-    let info = mock_info("deployer", &[]);
+    let info = mock_info("creator", &[]);
     let tax_rate = FractionFormat {
         numerator: Uint128::new(8),
         denominator: Uint128::new(100),
     };
     let msg = InstantiateMsg {
         owner: Addr::unchecked(owner),
-        config: Config {
-            terraswap_pair: Addr::unchecked("not_care"),
-            terraswap_router: Addr::unchecked("not_care"),
-        },
         tax_info: TaxInfo {
             buy_tax: Some(tax_rate.clone()),
             sell_tax: Some(tax_rate.clone()),
@@ -255,13 +260,9 @@ fn update_collect_tax_address() {
     let mut deps = mock_dependencies();
     let env = mock_env();
     let owner = "owner";
-    let info = mock_info("deployer", &[]);
+    let info = mock_info("creator", &[]);
     let msg = InstantiateMsg {
         owner: Addr::unchecked(owner),
-        config: Config {
-            terraswap_pair: Addr::unchecked("not_care"),
-            terraswap_router: Addr::unchecked("not_care"),
-        },
         tax_info: TaxInfo {
             buy_tax: None,
             sell_tax: None,
@@ -300,13 +301,9 @@ fn set_tax_free_address() {
     let mut deps = mock_dependencies();
     let env = mock_env();
     let owner = "owner";
-    let info = mock_info("deployer", &[]);
+    let info = mock_info("creator", &[]);
     let msg = InstantiateMsg {
         owner: Addr::unchecked(owner),
-        config: Config {
-            terraswap_pair: Addr::unchecked("not_care"),
-            terraswap_router: Addr::unchecked("not_care"),
-        },
         tax_info: TaxInfo {
             buy_tax: None,
             sell_tax: None,
@@ -380,6 +377,7 @@ fn set_tax_free_address() {
 fn collect_sell_tax_when_execute_send() {
     let mut deps = mock_dependencies();
     let env = mock_env();
+    let creator = "creator";
     let owner = "owner";
     let terraswap_router = "terraswap_router";
     let seller = "seller";
@@ -390,10 +388,6 @@ fn collect_sell_tax_when_execute_send() {
     };
     let msg = InstantiateMsg {
         owner: Addr::unchecked(owner),
-        config: Config {
-            terraswap_pair: Addr::unchecked("not_care"),
-            terraswap_router: Addr::unchecked(terraswap_router),
-        },
         tax_info: TaxInfo {
             buy_tax: None,
             sell_tax: Some(tax_rate.clone()),
@@ -404,7 +398,18 @@ fn collect_sell_tax_when_execute_send() {
             amount: seller_balance,
         }]),
     };
-    let _res = instantiate(deps.as_mut(), env, mock_info("deployer", &[]), msg).unwrap();
+    instantiate(deps.as_mut(), env, mock_info(creator, &[]), msg).unwrap();
+    // set config
+    execute(
+        deps.as_mut(),
+        mock_env(),
+        mock_info(creator, &[]),
+        ExecuteMsg::SetConfig {
+            terraswap_router: Addr::unchecked("terraswap_router"),
+            terraswap_pair: Addr::unchecked("terraswap_pair"),
+        },
+    )
+    .unwrap();
 
     // send from buyer to terraswap router
     let info = mock_info(seller, &[]);
@@ -478,6 +483,7 @@ fn collect_sell_tax_when_execute_send() {
 fn collect_sell_tax_when_execute_send_from() {
     let mut deps = mock_dependencies();
     let env = mock_env();
+    let creator = "creator";
     let owner = "owner";
     let terraswap_router = "terraswap_router";
     let spender = "spender";
@@ -490,10 +496,6 @@ fn collect_sell_tax_when_execute_send_from() {
     };
     let msg = InstantiateMsg {
         owner: Addr::unchecked(owner),
-        config: Config {
-            terraswap_pair: Addr::unchecked("not_care"),
-            terraswap_router: Addr::unchecked(terraswap_router),
-        },
         tax_info: TaxInfo {
             buy_tax: None,
             sell_tax: Some(tax_rate.clone()),
@@ -504,7 +506,18 @@ fn collect_sell_tax_when_execute_send_from() {
             amount: seller_balance,
         }]),
     };
-    let _res = instantiate(deps.as_mut(), env, mock_info("deployer", &[]), msg).unwrap();
+    instantiate(deps.as_mut(), env, mock_info(creator, &[]), msg).unwrap();
+    // set config
+    execute(
+        deps.as_mut(),
+        mock_env(),
+        mock_info(creator, &[]),
+        ExecuteMsg::SetConfig {
+            terraswap_router: Addr::unchecked("terraswap_router"),
+            terraswap_pair: Addr::unchecked("terraswap_pair"),
+        },
+    )
+    .unwrap();
 
     // approve from seller to spender
     let info = mock_info(seller, &[]);
@@ -572,6 +585,7 @@ fn collect_sell_tax_when_execute_send_from() {
 fn collect_buy_tax_when_execute_transfer() {
     let mut deps = mock_dependencies();
     let env = mock_env();
+    let creator = "creator";
     let owner = "owner";
     let buyer = "buyer";
     let terraswap_pair = "terraswap_pair";
@@ -582,10 +596,6 @@ fn collect_buy_tax_when_execute_transfer() {
     };
     let msg = InstantiateMsg {
         owner: Addr::unchecked(owner),
-        config: Config {
-            terraswap_pair: Addr::unchecked(terraswap_pair),
-            terraswap_router: Addr::unchecked("not_care"),
-        },
         tax_info: TaxInfo {
             buy_tax: Some(tax_rate.clone()),
             sell_tax: None,
@@ -596,7 +606,18 @@ fn collect_buy_tax_when_execute_transfer() {
             amount: terraswap_pair_balance,
         }]),
     };
-    let _res = instantiate(deps.as_mut(), env, mock_info("deployer", &[]), msg).unwrap();
+    instantiate(deps.as_mut(), env, mock_info(creator, &[]), msg).unwrap();
+    // set config
+    execute(
+        deps.as_mut(),
+        mock_env(),
+        mock_info(creator, &[]),
+        ExecuteMsg::SetConfig {
+            terraswap_router: Addr::unchecked("terraswap_router"),
+            terraswap_pair: Addr::unchecked("terraswap_pair"),
+        },
+    )
+    .unwrap();
 
     // transfer from terraswap pair to buyer
     let info = mock_info(terraswap_pair, &[]);
@@ -659,6 +680,7 @@ fn collect_buy_tax_when_execute_transfer() {
 fn collect_buy_tax_when_execute_transfer_from() {
     let mut deps = mock_dependencies();
     let env = mock_env();
+    let creator = "creator";
     let owner = "owner";
     let spender = "spender";
     let seller = "seller";
@@ -671,10 +693,6 @@ fn collect_buy_tax_when_execute_transfer_from() {
     };
     let msg = InstantiateMsg {
         owner: Addr::unchecked(owner),
-        config: Config {
-            terraswap_pair: Addr::unchecked(terraswap_pair),
-            terraswap_router: Addr::unchecked("not_care"),
-        },
         tax_info: TaxInfo {
             buy_tax: None,
             sell_tax: Some(tax_rate.clone()),
@@ -685,7 +703,18 @@ fn collect_buy_tax_when_execute_transfer_from() {
             amount: seller_balance,
         }]),
     };
-    let _res = instantiate(deps.as_mut(), env, mock_info("deployer", &[]), msg).unwrap();
+    instantiate(deps.as_mut(), env, mock_info("creator", &[]), msg).unwrap();
+    // set config
+    execute(
+        deps.as_mut(),
+        mock_env(),
+        mock_info(creator, &[]),
+        ExecuteMsg::SetConfig {
+            terraswap_router: Addr::unchecked("terraswap_router"),
+            terraswap_pair: Addr::unchecked("terraswap_pair"),
+        },
+    )
+    .unwrap();
 
     // approve from seller to spender
     let info = mock_info(seller, &[]);

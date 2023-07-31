@@ -3,12 +3,12 @@ use cosmwasm_std::{Addr, Binary, Decimal, Uint128};
 use cw20::{Expiration, Logo};
 use cw20_base::msg::InstantiateMsg as Cw20InstantiateMsg;
 
-use crate::state::{Config, FractionFormat, TaxInfo};
+use crate::state::{FractionFormat, TaxInfo};
 
 #[cw_serde]
 pub struct InstantiateMsg {
     pub owner: Addr,
-    pub config: Config,
+    // pub terraswap_router: Addr,
     pub tax_info: TaxInfo,
     pub cw20_instantiate_msg: Cw20InstantiateMsg,
 }
@@ -16,6 +16,27 @@ pub struct InstantiateMsg {
 #[cw_serde]
 
 pub enum ExecuteMsg {
+    // ======= Extend executes for cremation-coin =======
+    SetConfig {
+        terraswap_router: Addr,
+        terraswap_pair: Addr,
+    },
+    UpdateOwner {
+        new_owner: Addr,
+    },
+    UpdateCollectTaxAddress {
+        new_collect_tax_addr: Addr,
+    },
+    UpdateTaxInfo {
+        buy_tax: Option<FractionFormat>,
+        sell_tax: Option<FractionFormat>,
+        transfer_tax: Option<FractionFormat>,
+    },
+    SetTaxFreeAddress {
+        address: Addr,
+        tax_free: bool,
+    },
+
     // ======= Existed executes from cw20-base =======
     /// Transfer is a base message to move tokens to another account without triggering actions
     Transfer {
@@ -94,28 +115,30 @@ pub enum ExecuteMsg {
     },
     /// If set as the "marketing" role on the contract, upload a new URL, SVG, or PNG for the token
     UploadLogo(Logo),
-
-    // ======= Extend executes for cremation-coin =======
-    UpdateOwner {
-        new_owner: Addr,
-    },
-    UpdateCollectTaxAddress {
-        new_collect_tax_addr: Addr,
-    },
-    UpdateTaxInfo {
-        buy_tax: Option<FractionFormat>,
-        sell_tax: Option<FractionFormat>,
-        transfer_tax: Option<FractionFormat>,
-    },
-    SetTaxFreeAddress {
-        address: Addr,
-        tax_free: bool,
-    },
 }
 
 #[cw_serde]
 #[derive(QueryResponses)]
 pub enum QueryMsg {
+    // ======= Extended queries from cremation-coin =======
+    /// Returns the current config of the contract.
+    /// - terraswap_router: Terraswap Router contract address
+    /// - terraswap_pair: Terraswap Pair contract address
+    #[returns(ConfigResponse)]
+    Config {},
+    #[returns(OwnerResponse)]
+    Owner {},
+    #[returns(CollectTaxAddressResponse)]
+    CollectTaxAddress {},
+    /// Returns the current tax info of the contract.
+    /// - buy_tax: Tax rate for buy
+    /// - sell_tax: Tax rate for sell
+    /// - transfer_tax: Tax rate for transfer
+    #[returns(TaxInfoResponse)]
+    TaxInfo {},
+    #[returns(TaxFreeAddressResponse)]
+    TaxFreeAddress { address: String },
+
     // ======= Existed queries from cw20-base =======
     /// Returns the current balance of the given address, 0 if unset.
     #[returns(cw20::BalanceResponse)]
@@ -164,55 +187,7 @@ pub enum QueryMsg {
     /// contract.
     #[returns(cw20::DownloadLogoResponse)]
     DownloadLogo {},
-
-    // ======= Extended queries from cremation-coin =======
-    /// Returns the current config of the contract.
-    /// - terraswap_router: Terraswap Router contract address
-    /// - terraswap_pair: Terraswap Pair contract address
-    #[returns(ConfigResponse)]
-    Config {},
-    #[returns(OwnerResponse)]
-    Owner {},
-    #[returns(CollectTaxAddressResponse)]
-    CollectTaxAddress {},
-    /// Returns the current tax info of the contract.
-    /// - buy_tax: Tax rate for buy
-    /// - sell_tax: Tax rate for sell
-    /// - transfer_tax: Tax rate for transfer
-    #[returns(TaxInfoResponse)]
-    TaxInfo {},
-    #[returns(TaxFreeAddressResponse)]
-    TaxFreeAddress { address: String },
 }
-
-#[cw_serde]
-pub enum AssetInfo {
-    Token { contract_addr: String },
-    NativeToken { denom: String },
-}
-
-#[cw_serde]
-pub enum SwapOperation {
-    NativeSwap {
-        offer_denom: String,
-        ask_denom: String,
-    },
-    TerraSwap {
-        offer_asset_info: AssetInfo,
-        ask_asset_info: AssetInfo,
-    },
-}
-
-#[cw_serde]
-pub enum Cw20HookMsg {
-    ExecuteSwapOperations {
-        operations: Vec<SwapOperation>,
-        minimum_receive: Option<Uint128>,
-        to: Option<String>,
-        deadline: Option<u64>,
-    },
-}
-
 #[cw_serde]
 pub struct ConfigResponse {
     pub terraswap_router: Addr,

@@ -1,8 +1,12 @@
 use crate::{msg::*, state::*};
 
+use classic_terraswap::{
+    asset::AssetInfo,
+    router::{Cw20HookMsg, SwapOperation},
+};
 use cosmwasm_std::{
-    attr, to_binary, Addr, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Storage,
-    Uint128,
+    attr, to_binary, Addr, Binary, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Response, StdError,
+    StdResult, Storage, Uint128,
 };
 use cw20::Cw20ReceiveMsg;
 use cw20_base::{
@@ -20,6 +24,7 @@ use cw20_base::{
     ContractError,
 };
 
+// const CREATE_PAIR_REPLY_ID: u64 = 1;
 const SWAP_COLLECTED_TAX_THRESHOLD: Uint128 = Uint128::new(1_000_000_000_000 / 20_000);
 
 pub fn instantiate(
@@ -28,16 +33,14 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
-    // Terraswap config (Router and Pair contract addresses)
-    CONFIG.save(deps.storage, &msg.config)?;
-    OWNER.save(deps.storage, &msg.owner)?;
-
     // Buy - Sell - Transfer Taxes
     TAX_INFO.save(deps.storage, &msg.tax_info)?;
+    CREATOR.save(deps.storage, &info.sender)?;
+    OWNER.save(deps.storage, &msg.owner)?;
     COLLECT_TAX_ADDRESS.save(deps.storage, &msg.owner)?;
     TAX_FREE_ADDRESSES.save(deps.storage, msg.owner, &true)?;
 
-    cw20_instantiate(deps, env, info, msg.cw20_instantiate_msg)
+    cw20_instantiate(deps, env.clone(), info, msg.cw20_instantiate_msg)
 }
 
 pub fn execute(
@@ -47,6 +50,24 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
+        // ======= Extend executes for cremation-coin =======
+        ExecuteMsg::SetConfig {
+            terraswap_router,
+            terraswap_pair,
+        } => execute::set_config(deps, env, info, terraswap_router, terraswap_pair),
+        ExecuteMsg::UpdateOwner { new_owner } => execute::update_owner(deps, env, info, new_owner),
+        ExecuteMsg::UpdateCollectTaxAddress {
+            new_collect_tax_addr,
+        } => execute::update_collecting_tax_address(deps, env, info, new_collect_tax_addr),
+        ExecuteMsg::UpdateTaxInfo {
+            buy_tax,
+            sell_tax,
+            transfer_tax,
+        } => execute::update_tax_info(deps, env, info, buy_tax, sell_tax, transfer_tax),
+        ExecuteMsg::SetTaxFreeAddress { address, tax_free } => {
+            execute::set_tax_free_address(deps, env, info, address, tax_free)
+        }
+
         // ======= Existed executes from cw20-base =======
         ExecuteMsg::Send {
             contract,
@@ -89,27 +110,99 @@ pub fn execute(
             marketing,
         } => execute_update_marketing(deps, env, info, project, description, marketing),
         ExecuteMsg::UploadLogo(logo) => execute_upload_logo(deps, env, info, logo),
-
-        // ======= Extend executes for cremation-coin =======
-        ExecuteMsg::UpdateOwner { new_owner } => execute::update_owner(deps, env, info, new_owner),
-        ExecuteMsg::UpdateCollectTaxAddress {
-            new_collect_tax_addr,
-        } => execute::update_collecting_tax_address(deps, env, info, new_collect_tax_addr),
-        ExecuteMsg::UpdateTaxInfo {
-            buy_tax,
-            sell_tax,
-            transfer_tax,
-        } => execute::update_tax_info(deps, env, info, buy_tax, sell_tax, transfer_tax),
-        ExecuteMsg::SetTaxFreeAddress { address, tax_free } => {
-            execute::set_tax_free_address(deps, env, info, address, tax_free)
-        }
     }
 }
 
 pub mod execute {
-    use cosmwasm_std::CosmosMsg;
-
     use super::*;
+
+    pub fn set_config(
+        deps: DepsMut,
+        _env: Env,
+        info: MessageInfo,
+        terraswap_router: Addr,
+        terraswap_pair: Addr,
+    ) -> Result<Response, ContractError> {
+        let creator = CREATOR.load(deps.storage)?;
+        if info.sender != creator {
+            return Err(ContractError::Unauthorized {});
+        }
+
+        if CONFIG.exists(deps.storage) {
+            return Err(StdError::generic_err("Config has already initialized").into());
+        }
+
+        let config = Config {
+            terraswap_router,
+            terraswap_pair,
+        };
+        CONFIG.save(deps.storage, &config)?;
+        Ok(Response::new())
+    }
+
+    pub fn update_owner(
+        deps: DepsMut,
+        _env: Env,
+        info: MessageInfo,
+        new_owner: Addr,
+    ) -> Result<Response, ContractError> {
+        let current_owner = OWNER.load(deps.storage)?;
+        if info.sender != current_owner {
+            return Err(ContractError::Unauthorized {});
+        }
+        OWNER.save(deps.storage, &new_owner)?;
+        Ok(Response::new())
+    }
+
+    pub fn update_collecting_tax_address(
+        deps: DepsMut,
+        _env: Env,
+        info: MessageInfo,
+        new_collect_tax_addr: Addr,
+    ) -> Result<Response, ContractError> {
+        let owner = OWNER.load(deps.storage)?;
+        if info.sender != owner {
+            return Err(ContractError::Unauthorized {});
+        }
+        COLLECT_TAX_ADDRESS.save(deps.storage, &new_collect_tax_addr)?;
+        Ok(Response::new())
+    }
+
+    pub fn update_tax_info(
+        deps: DepsMut,
+        _env: Env,
+        info: MessageInfo,
+        buy_tax: Option<FractionFormat>,
+        sell_tax: Option<FractionFormat>,
+        transfer_tax: Option<FractionFormat>,
+    ) -> Result<Response, ContractError> {
+        let owner = OWNER.load(deps.storage)?;
+        if info.sender != owner {
+            return Err(ContractError::Unauthorized {});
+        }
+        let tax_info = TaxInfo {
+            buy_tax,
+            sell_tax,
+            transfer_tax,
+        };
+        TAX_INFO.save(deps.storage, &tax_info)?;
+        Ok(Response::new())
+    }
+
+    pub fn set_tax_free_address(
+        deps: DepsMut,
+        _env: Env,
+        info: MessageInfo,
+        address: Addr,
+        tax_free: bool,
+    ) -> Result<Response, ContractError> {
+        let owner = OWNER.load(deps.storage)?;
+        if info.sender != owner {
+            return Err(ContractError::Unauthorized {});
+        }
+        TAX_FREE_ADDRESSES.save(deps.storage, address, &tax_free)?;
+        Ok(Response::new())
+    }
 
     pub fn send(
         deps: DepsMut,
@@ -375,7 +468,6 @@ pub mod execute {
         }
     }
 
-    // TODO
     fn swap_collected_tax_to_native(
         deps: Deps,
         env: Env,
@@ -420,70 +512,6 @@ pub mod execute {
     fn is_sell_operation(config: &Config, from: Addr, to: Addr) -> bool {
         to == config.terraswap_router
             || (from != config.terraswap_router && to == config.terraswap_pair)
-    }
-
-    pub fn update_owner(
-        deps: DepsMut,
-        _env: Env,
-        info: MessageInfo,
-        new_owner: Addr,
-    ) -> Result<Response, ContractError> {
-        let current_owner = OWNER.load(deps.storage)?;
-        if info.sender != current_owner {
-            return Err(ContractError::Unauthorized {});
-        }
-        OWNER.save(deps.storage, &new_owner)?;
-        Ok(Response::new())
-    }
-
-    pub fn update_collecting_tax_address(
-        deps: DepsMut,
-        _env: Env,
-        info: MessageInfo,
-        new_collect_tax_addr: Addr,
-    ) -> Result<Response, ContractError> {
-        let owner = OWNER.load(deps.storage)?;
-        if info.sender != owner {
-            return Err(ContractError::Unauthorized {});
-        }
-        COLLECT_TAX_ADDRESS.save(deps.storage, &new_collect_tax_addr)?;
-        Ok(Response::new())
-    }
-
-    pub fn update_tax_info(
-        deps: DepsMut,
-        _env: Env,
-        info: MessageInfo,
-        buy_tax: Option<FractionFormat>,
-        sell_tax: Option<FractionFormat>,
-        transfer_tax: Option<FractionFormat>,
-    ) -> Result<Response, ContractError> {
-        let owner = OWNER.load(deps.storage)?;
-        if info.sender != owner {
-            return Err(ContractError::Unauthorized {});
-        }
-        let tax_info = TaxInfo {
-            buy_tax,
-            sell_tax,
-            transfer_tax,
-        };
-        TAX_INFO.save(deps.storage, &tax_info)?;
-        Ok(Response::new())
-    }
-
-    pub fn set_tax_free_address(
-        deps: DepsMut,
-        _env: Env,
-        info: MessageInfo,
-        address: Addr,
-        tax_free: bool,
-    ) -> Result<Response, ContractError> {
-        let owner = OWNER.load(deps.storage)?;
-        if info.sender != owner {
-            return Err(ContractError::Unauthorized {});
-        }
-        TAX_FREE_ADDRESSES.save(deps.storage, address, &tax_free)?;
-        Ok(Response::new())
     }
 }
 

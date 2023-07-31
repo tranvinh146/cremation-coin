@@ -27,3 +27,4 @@ pub const COLLECT_TAX_ADDRESS: Item<Addr> = Item::new("collect_tax_address");
 pub const TAX_FREE_ADDRESSES: Map<Addr, bool> = Map::new("tax_free_addresses");
 
 pub const OWNER: Item<Addr> = Item::new("owner");
+pub const CREATOR: Item<Addr> = Item::new("creator");

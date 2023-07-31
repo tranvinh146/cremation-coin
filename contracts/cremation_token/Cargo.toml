@@ -15,12 +15,16 @@ library = []
 cw2 = "1.0.1"
 cw20 = "1.0.1"
 cw20-base = { version = "1.0.1", features = ["library"] }
+classic_terraswap = "2.7.0"
 cw-storage-plus = "1.0.0"
 cosmwasm-std = "1.0.0"
 cosmwasm-schema = "1.0.4"
-schemars = "0.8.1"
 serde = { version = "1.0.103", default-features = false, features = ["derive"] }
 thiserror = "1.0.23"
+schemars = "0.8.1"
 
 [dev-dependencies]
-cosmwasm-schema = "1.0.0"
+cw-multi-test = "0.16.5"
+# mock-terraswap-factory = { path = "mocks/terraswap_factory" }
+# mock-terraswap-pair = { path = "mocks/terraswap_pair" }
+# mock-terraswap-token = { path = "mocks/terraswap_token" }
