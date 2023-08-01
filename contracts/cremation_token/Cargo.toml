@@ -22,9 +22,3 @@ cosmwasm-schema = "1.0.4"
 serde = { version = "1.0.103", default-features = false, features = ["derive"] }
 thiserror = "1.0.23"
 schemars = "0.8.1"
-
-[dev-dependencies]
-cw-multi-test = "0.16.5"
-# mock-terraswap-factory = { path = "mocks/terraswap_factory" }
-# mock-terraswap-pair = { path = "mocks/terraswap_pair" }
-# mock-terraswap-token = { path = "mocks/terraswap_token" }
