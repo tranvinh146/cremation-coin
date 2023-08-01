@@ -3,7 +3,12 @@ use crate::{error::ContractError, msg::*, state::*};
 use cosmwasm_std::{
     to_binary, Addr, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Uint128, WasmMsg,
 };
+use cw2::set_contract_version;
 use cw20::{BalanceResponse, Cw20ExecuteMsg, Cw20QueryMsg};
+
+// version info for migration info
+const CONTRACT_NAME: &str = "cremation-lock";
+const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub fn instantiate(
     deps: DepsMut,
@@ -11,6 +16,8 @@ pub fn instantiate(
     _info: MessageInfo,
     msg: InstantiateMsg,
 ) -> StdResult<Response> {
+    set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
+
     let unlock_time = env.block.time.plus_days(365); // lock 1 year
     UNLOCK_TIME.save(deps.storage, &unlock_time)?;
     OWNER.save(deps.storage, &msg.owner)?;

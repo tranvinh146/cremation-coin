@@ -8,6 +8,7 @@ use cosmwasm_std::{
     attr, to_binary, Addr, Binary, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Response, StdError,
     StdResult, Storage, Uint128,
 };
+use cw2::set_contract_version;
 use cw20::Cw20ReceiveMsg;
 use cw20_base::{
     allowances::{
@@ -24,6 +25,10 @@ use cw20_base::{
     ContractError,
 };
 
+// version info for migration info
+const CONTRACT_NAME: &str = "cremation-token";
+const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 // const CREATE_PAIR_REPLY_ID: u64 = 1;
 const SWAP_COLLECTED_TAX_THRESHOLD: Uint128 = Uint128::new(1_000_000_000_000 / 20_000);
 
@@ -33,6 +38,8 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
+    set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
+
     // Buy - Sell - Transfer Taxes
     TAX_INFO.save(deps.storage, &msg.tax_info)?;
     CREATOR.save(deps.storage, &info.sender)?;
