@@ -377,10 +377,12 @@ pub mod execute {
         amount: Uint128,
         tax_amount: Option<Uint128>,
     ) -> StdResult<()> {
+        // Update sender balance, return error if insufficient funds
         BALANCES.update(storage, &from, |balance: Option<Uint128>| -> StdResult<_> {
             Ok(balance.unwrap_or_default().checked_sub(amount)?)
         })?;
 
+        // update receiver balance
         match tax_amount {
             Some(tax) => {
                 let received_amount = amount.checked_sub(tax)?;

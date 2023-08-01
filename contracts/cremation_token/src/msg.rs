@@ -8,13 +8,11 @@ use crate::state::{FractionFormat, TaxInfo};
 #[cw_serde]
 pub struct InstantiateMsg {
     pub owner: Addr,
-    // pub terraswap_router: Addr,
     pub tax_info: TaxInfo,
     pub cw20_instantiate_msg: Cw20InstantiateMsg,
 }
 
 #[cw_serde]
-
 pub enum ExecuteMsg {
     // ======= Extend executes for cremation-coin =======
     SetConfig {
