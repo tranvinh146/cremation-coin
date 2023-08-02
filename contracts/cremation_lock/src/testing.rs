@@ -69,7 +69,7 @@ fn update_owner() {
 }
 
 #[test]
-fn fail_to_withdraw_when_unauthorized_or_in_lock_time() {
+fn fail_to_withdraw_when_in_lock_time() {
     let mut deps = mock_dependencies();
     let owner = "owner";
 
@@ -78,15 +78,6 @@ fn fail_to_withdraw_when_unauthorized_or_in_lock_time() {
     };
     let info = mock_info("deployer", &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
-
-    // fail to withdraw with non-owner
-    let non_owner = "non_owner";
-    let info = mock_info(non_owner, &[]);
-    let msg = ExecuteMsg::Withdraw {
-        token_address: Addr::unchecked("token_addr"),
-    };
-    let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-    assert_eq!(err, ContractError::Unauthorized {});
 
     // fail to withdraw when in-lock time
     let info = mock_info(owner, &[]);
@@ -132,7 +123,7 @@ fn withdraw() {
         _ => panic!("DO NOT ENTER HERE"),
     });
     deps.querier = custom_querier;
-    let info = mock_info(owner, &[]);
+    let info = mock_info("someone", &[]); // anyone can call withdraw
     let mut env = mock_env();
     env.block.time = env.block.time.plus_days(365);
     env.contract.address = Addr::unchecked(lock_contract_addr);

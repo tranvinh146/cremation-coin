@@ -21,7 +21,6 @@ pub fn instantiate(
     let unlock_time = env.block.time.plus_days(365); // lock 1 year
     UNLOCK_TIME.save(deps.storage, &unlock_time)?;
     OWNER.save(deps.storage, &msg.owner)?;
-    // LOCKED_TOKEN_LIST.save(deps.storage, &vec![])?;
 
     Ok(Response::default())
 }
@@ -33,7 +32,6 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        // ExecuteMsg::Receive(msg) => execute::receive_cw20(deps, env, info, msg),
         ExecuteMsg::UpdateOwner { new_owner } => execute::update_owner(deps, env, info, new_owner),
         ExecuteMsg::Withdraw { token_address } => execute::withdraw(deps, env, info, token_address),
     }
@@ -41,26 +39,6 @@ pub fn execute(
 
 mod execute {
     use super::*;
-
-    // pub fn receive_cw20(
-    //     deps: DepsMut,
-    //     _env: Env,
-    //     info: MessageInfo,
-    //     _msg: Cw20ReceiveMsg,
-    // ) -> Result<Response, ContractError> {
-    //     let token_address = info.sender;
-
-    //     let mut locked_token_list = LOCKED_TOKEN_LIST.load(deps.storage)?;
-    //     if !locked_token_list.contains(&token_address) {
-    //         locked_token_list.push(token_address.clone());
-    //         LOCKED_TOKEN_LIST.save(deps.storage, &locked_token_list)?;
-    //     }
-
-    //     let res = Response::new()
-    //         .add_attribute("action", "lock")
-    //         .add_attribute("token_address", token_address.clone());
-    //     Ok(res)
-    // }
 
     pub fn update_owner(
         deps: DepsMut,
@@ -84,27 +62,17 @@ mod execute {
     pub fn withdraw(
         deps: DepsMut,
         env: Env,
-        info: MessageInfo,
+        _info: MessageInfo,
         token_address: Addr,
     ) -> Result<Response, ContractError> {
         let owner = OWNER.load(deps.storage)?;
         let unlock_time = UNLOCK_TIME.load(deps.storage)?;
-        if owner != info.sender {
-            return Err(ContractError::Unauthorized {});
-        }
+        // if owner != info.sender {
+        //     return Err(ContractError::Unauthorized {});
+        // }
         if env.block.time < unlock_time {
             return Err(ContractError::Locked {});
         }
-
-        // let mut locked_token_list = LOCKED_TOKEN_LIST.load(deps.storage)?;
-        // if locked_token_list.contains(&token_address) {
-        //     let index = locked_token_list
-        //         .iter()
-        //         .position(|x| *x == token_address)
-        //         .unwrap();
-        //     locked_token_list.remove(index);
-        //     LOCKED_TOKEN_LIST.save(deps.storage, &locked_token_list)?;
-        // }
 
         let query_balance_msg = Cw20QueryMsg::Balance {
             address: env.contract.address.to_string(),
@@ -134,7 +102,6 @@ mod execute {
 
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        // QueryMsg::LockedTokenList {} => to_binary(&query::locked_token_list(deps)?),
         QueryMsg::LockedTokenAmount { token_address } => {
             to_binary(&query::locked_token_amount(deps, env, token_address)?)
         }
@@ -145,11 +112,6 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
 
 pub mod query {
     use super::*;
-
-    // pub fn locked_token_list(deps: Deps) -> StdResult<LockedTokenListResponse> {
-    //     let locked_token_list = LOCKED_TOKEN_LIST.load(deps.storage)?;
-    //     Ok(LockedTokenListResponse { locked_token_list })
-    // }
 
     pub fn locked_token_amount(
         deps: Deps,

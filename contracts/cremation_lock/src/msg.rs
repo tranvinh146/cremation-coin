@@ -17,8 +17,6 @@ pub enum ExecuteMsg {
 #[cw_serde]
 #[derive(QueryResponses)]
 pub enum QueryMsg {
-    // #[returns(LockedTokenListResponse)]
-    // LockedTokenList {},
     #[returns(LockedTokenAmountResponse)]
     LockedTokenAmount { token_address: Addr },
     #[returns(OwnerResponse)]
@@ -26,11 +24,6 @@ pub enum QueryMsg {
     #[returns(UnlockTimeResponse)]
     UnlockTime {},
 }
-
-// #[cw_serde]
-// pub struct LockedTokenListResponse {
-//     pub locked_token_list: Vec<Addr>,
-// }
 
 #[cw_serde]
 pub struct LockedTokenAmountResponse {

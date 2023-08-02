@@ -1,12 +1,15 @@
+use std::ops::Mul;
+
 use cosmwasm_std::{
     from_binary,
     testing::{mock_dependencies, mock_env, mock_info},
-    Addr, Binary, Decimal, Uint128,
+    Addr, Binary, CosmosMsg, Decimal, Uint128, WasmMsg,
 };
 use cw20::{Cw20Coin, TokenInfoResponse};
 use cw20_base::{msg::InstantiateMsg as Cw20InstantiateMsg, ContractError};
 
 use crate::{
+    contract::SWAP_COLLECTED_TAX_THRESHOLD,
     execute, instantiate,
     msg::{
         CollectTaxAddressResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, OwnerResponse,
@@ -774,4 +777,67 @@ fn collect_buy_tax_when_execute_transfer_from() {
     let tax_addr_balance_res: cw20::BalanceResponse =
         from_binary(&tax_addr_balance_query.unwrap()).unwrap();
     assert_eq!(tax_addr_balance_res.balance, expect_tax_amount);
+}
+
+#[test]
+fn trigger_auto_swap_collected_tax() {
+    let mut deps = mock_dependencies();
+    let env = mock_env();
+    let creator = "creator";
+    let owner = "owner";
+    let terraswap_router = "terraswap_router";
+    let seller = "seller";
+    let seller_balance = SWAP_COLLECTED_TAX_THRESHOLD.mul(Uint128::new(100));
+    let tax_rate = FractionFormat {
+        numerator: Uint128::new(8),
+        denominator: Uint128::new(100),
+    };
+    let msg = InstantiateMsg {
+        owner: Addr::unchecked(owner),
+        tax_info: TaxInfo {
+            buy_tax: None,
+            sell_tax: Some(tax_rate.clone()),
+            transfer_tax: None,
+        },
+        cw20_instantiate_msg: mock_cw20_instantiate_msg(vec![Cw20Coin {
+            address: seller.to_string(),
+            amount: seller_balance,
+        }]),
+    };
+    instantiate(deps.as_mut(), env, mock_info(creator, &[]), msg).unwrap();
+    // set config
+    execute(
+        deps.as_mut(),
+        mock_env(),
+        mock_info(creator, &[]),
+        ExecuteMsg::SetConfig {
+            terraswap_router: Addr::unchecked("terraswap_router"),
+            terraswap_pair: Addr::unchecked("terraswap_pair"),
+        },
+    )
+    .unwrap();
+
+    // send from buyer to terraswap router
+    let mut env = mock_env();
+    env.contract.address = Addr::unchecked("cremation_token");
+    let info = mock_info(seller, &[]);
+    let msg = ExecuteMsg::Send {
+        contract: terraswap_router.to_string(),
+        amount: seller_balance,
+        msg: Binary::default(),
+    };
+    let res = execute(deps.as_mut(), env, info, msg).unwrap();
+    let auto_swap_msg = res.messages.iter().find(|sub_msg| match sub_msg.msg {
+        CosmosMsg::Wasm(WasmMsg::Execute {
+            ref contract_addr, ..
+        }) => contract_addr == "cremation_token",
+        _ => false,
+    });
+    assert!(auto_swap_msg.is_some());
+
+    let collected_tax_opt = res
+        .attributes
+        .iter()
+        .find(|attr| attr.key == "action" && attr.value == "collected_tax_swap");
+    assert!(collected_tax_opt.is_some());
 }

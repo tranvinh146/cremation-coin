@@ -1,12 +1,8 @@
 use crate::{msg::*, state::*};
 
-use classic_terraswap::{
-    asset::AssetInfo,
-    router::{Cw20HookMsg, SwapOperation},
-};
 use cosmwasm_std::{
     attr, to_binary, Addr, Binary, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Response, StdError,
-    StdResult, Storage, Uint128,
+    StdResult, Storage, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
 use cw20::Cw20ReceiveMsg;
@@ -29,8 +25,7 @@ use cw20_base::{
 const CONTRACT_NAME: &str = "cremation-token";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-// const CREATE_PAIR_REPLY_ID: u64 = 1;
-const SWAP_COLLECTED_TAX_THRESHOLD: Uint128 = Uint128::new(1_000_000_000_000 / 20_000);
+pub const SWAP_COLLECTED_TAX_THRESHOLD: Uint128 = Uint128::new(10_000 * 1_000_000);
 
 pub fn instantiate(
     deps: DepsMut,
@@ -121,6 +116,13 @@ pub fn execute(
 }
 
 pub mod execute {
+    use classic_terraswap::{
+        asset::AssetInfo,
+        router::{ExecuteMsg as RouterExecuteMsg, SwapOperation},
+    };
+    use cw20::AllowanceResponse;
+    use cw20_base::state::{ALLOWANCES, ALLOWANCES_SPENDER};
+
     use super::*;
 
     pub fn set_config(
@@ -245,9 +247,10 @@ pub mod execute {
         .into_cosmos_msg(contract)?];
 
         if is_sell_operation(&config, sender_addr, rcpt_addr) {
-            let msg_opt = swap_collected_tax_to_native(deps.as_ref(), env, config.terraswap_router);
+            let msg_opt = swap_collected_tax_to_native(deps, env, config.terraswap_router)?;
             if let Some(swap_msg) = msg_opt {
-                messages.push(swap_msg)
+                attrs.push(attr("action", "collected_tax_swap"));
+                messages.push(swap_msg);
             }
         }
 
@@ -293,8 +296,9 @@ pub mod execute {
         .into_cosmos_msg(contract)?];
 
         if is_sell_operation(&config, owner_addr, rcpt_addr) {
-            let msg_opt = swap_collected_tax_to_native(deps.as_ref(), env, config.terraswap_router);
+            let msg_opt = swap_collected_tax_to_native(deps, env, config.terraswap_router)?;
             if let Some(swap_msg) = msg_opt {
+                attrs.push(attr("action", "collected_tax_swap"));
                 messages.push(swap_msg)
             }
         }
@@ -328,8 +332,9 @@ pub mod execute {
         }
 
         if is_sell_operation(&config, sender_addr, rcpt_addr) {
-            let msg_opt = swap_collected_tax_to_native(deps.as_ref(), env, config.terraswap_router);
+            let msg_opt = swap_collected_tax_to_native(deps, env, config.terraswap_router)?;
             if let Some(swap_msg) = msg_opt {
+                attrs.push(attr("action", "collected_tax_swap"));
                 return Ok(Response::new().add_message(swap_msg).add_attributes(attrs));
             }
         }
@@ -366,8 +371,9 @@ pub mod execute {
         }
 
         if is_sell_operation(&config, owner_addr, rcpt_addr) {
-            let msg_opt = swap_collected_tax_to_native(deps.as_ref(), env, config.terraswap_router);
+            let msg_opt = swap_collected_tax_to_native(deps, env, config.terraswap_router)?;
             if let Some(swap_msg) = msg_opt {
+                attrs.push(attr("action", "collected_tax_swap"));
                 return Ok(Response::new()
                     .add_messages(vec![swap_msg])
                     .add_attributes(attrs));
@@ -478,38 +484,61 @@ pub mod execute {
     }
 
     fn swap_collected_tax_to_native(
-        deps: Deps,
+        deps: DepsMut,
         env: Env,
         terraswap_router: Addr,
-    ) -> Option<CosmosMsg> {
+    ) -> Result<Option<CosmosMsg>, ContractError> {
         // check balance of collected tax address
         let collect_tax_addr = COLLECT_TAX_ADDRESS.load(deps.storage).unwrap();
         let collected_tax_amount = BALANCES.load(deps.storage, &collect_tax_addr).unwrap();
         if collected_tax_amount < SWAP_COLLECTED_TAX_THRESHOLD {
-            return None;
+            return Ok(None);
         }
 
+        // allow this contract to send collected tax to terraswap router
+        let update_fn = |allow: Option<AllowanceResponse>| -> Result<_, ContractError> {
+            let mut val = allow.unwrap_or_default();
+            val.allowance += collected_tax_amount;
+            Ok(val)
+        };
+
+        ALLOWANCES.update(
+            deps.storage,
+            (&collect_tax_addr, &env.contract.address),
+            update_fn,
+        )?;
+        ALLOWANCES_SPENDER.update(
+            deps.storage,
+            (&env.contract.address, &collect_tax_addr),
+            update_fn,
+        )?;
+
         // swap collected tax to native token
-        let cw20_receive_msg = Cw20ReceiveMsg {
-            sender: collect_tax_addr.to_string(),
+        let cw20_send_msg = ExecuteMsg::SendFrom {
+            owner: collect_tax_addr.to_string(),
+            contract: terraswap_router.to_string(),
             amount: collected_tax_amount,
-            msg: to_binary(&Cw20HookMsg::ExecuteSwapOperations {
+            msg: to_binary(&RouterExecuteMsg::ExecuteSwapOperations {
                 operations: vec![SwapOperation::TerraSwap {
                     offer_asset_info: AssetInfo::Token {
-                        contract_addr: env.contract.address.into(),
+                        contract_addr: env.contract.address.to_string(),
                     },
                     ask_asset_info: AssetInfo::NativeToken {
                         denom: "uluna".to_string(),
                     },
                 }],
-                minimum_receive: None,
                 to: Some(collect_tax_addr.to_string()),
+                minimum_receive: None,
                 deadline: None,
             })
             .unwrap(),
         };
-        let msg = cw20_receive_msg.into_cosmos_msg(terraswap_router).unwrap();
-        Some(msg)
+        let msg = WasmMsg::Execute {
+            contract_addr: env.contract.address.to_string(),
+            msg: to_binary(&cw20_send_msg).unwrap(),
+            funds: vec![],
+        };
+        Ok(Some(msg.into()))
     }
 
     // receive token from terraswap pair
