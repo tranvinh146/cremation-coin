@@ -30,7 +30,7 @@ TOKEN_INIT_MSG="{\"owner\":\"$OWNER\",\"tax_info\":$TAX_INFO,\"cw20_instantiate_
 TOKEN_INIT_TX=$(terrad tx wasm instantiate $TOKEN_CODE_ID "$TOKEN_INIT_MSG" --label "cremation_token" --from $WALLET $TXFLAG --output json -y)
 TOKEN_INIT_TX_HASH=$(echo $TOKEN_INIT_TX | jq -r '.txhash')
 echo "Instantiated cremation token contract with tx hash: $TOKEN_INIT_TX_HASH"
-sleep 5
+sleep 6
 TOKEN_ADDRESS=$(terrad query tx $TOKEN_INIT_TX_HASH --output json | jq -r '.logs[0].events[] | select(.type == "instantiate") | .attributes[] | select (.key == "_contract_address") | .value')
 
 # instantiate cremation lock contract
@@ -40,10 +40,10 @@ LOCK_INIT_MSG="{\"owner\":\"$OWNER\"}"
 LOCK_INIT_TX=$(terrad tx wasm instantiate $LOCK_CODE_ID "$LOCK_INIT_MSG" --label "cremation_lock" --from $WALLET $TXFLAG --output json -y)
 LOCK_INIT_TX_HASH=$(echo $LOCK_INIT_TX | jq -r '.txhash')
 echo "Instantiated cremation lock contract with tx hash: $LOCK_INIT_TX_HASH"
-sleep 5
+sleep 6
 LOCK_ADDRESS=$(terrad query tx $LOCK_INIT_TX_HASH --output json | jq -r '.logs[0].events[] | select(.type == "instantiate") | .attributes[] | select (.key == "_contract_address") | .value')
 
 # write TOKEN_ADDRESS and LOCK_ADDRESS to file
 echo -e "\nWriting contract addresses to file..."
 echo "{\"token_addr\":\"$TOKEN_ADDRESS\",\"lock_addr\":\"$LOCK_ADDRESS\"}" > $STORAGE_PATH/cremation-contracts.json
-echo -e "\nWrited contract addresses into \"$STORAGE_PATH\" directory"
+echo "Writed contract addresses into \"$STORAGE_PATH\" directory"

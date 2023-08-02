@@ -58,7 +58,7 @@ do
     CONTRACT_NAME=${CONTRACTS[$idx]}
     write_code_id_to_file $CONTRACT_NAME $TX_HASH
 done
-echo -e "\nWrited code info into \"$STORAGE_PATH\" directory"
+echo "Writed code info into \"$STORAGE_PATH\" directory"
 
 # ===== Step 2: Instantiate contracts =====
 # instantiate terraswap_factory contracts
@@ -67,9 +67,9 @@ FACTORY_CODE_ID=$(cat $STORAGE_PATH/terraswap_factory-store-data.json | jq -r '.
 PAIR_CODE_ID=$(cat $STORAGE_PATH/terraswap_pair-store-data.json | jq -r '.code_id')
 TOKEN_CODE_ID=$(cat $STORAGE_PATH/terraswap_token-store-data.json | jq -r '.code_id')
 FACTORY_INIT_MSG="{\"pair_code_id\":$PAIR_CODE_ID,\"token_code_id\":$TOKEN_CODE_ID}"
-FACTORY_INIT_TX=$(terrad tx wasm instantiate $FACTORY_CODE_ID "$FACTORY_INIT_MSG" --label "terraswap_factory" --from $WALLET $TXFLAG -y --output json)
+FACTORY_INIT_TX=$(terrad tx wasm instantiate $FACTORY_CODE_ID "$FACTORY_INIT_MSG" --no-admin --label "terraswap_factory" --from $WALLET $TXFLAG -y --output json)
 FACTORY_INIT_TX_HASH=$(echo $FACTORY_INIT_TX | jq -r .txhash)
-echo -e "\nInstantiated terraswap_factory contract with tx hash: $FACTORY_INIT_TX_HASH"
+echo "Instantiated terraswap_factory contract with tx hash: $FACTORY_INIT_TX_HASH"
 sleep 5
 FACTORY_ADDR=$(terrad query tx $FACTORY_INIT_TX_HASH --output json | jq -r '.logs[0].events[] | select(.type == "instantiate") | .attributes[] | select (.key == "_contract_address") | .value')
 
@@ -77,16 +77,16 @@ FACTORY_ADDR=$(terrad query tx $FACTORY_INIT_TX_HASH --output json | jq -r '.log
 echo -e "\nInstantiating terraswap_router contract..."
 ROUTER_CODE_ID=$(cat $STORAGE_PATH/terraswap_router-store-data.json | jq -r '.code_id')
 ROUTER_INIT_MSG="{\"terraswap_factory\":\"$FACTORY_ADDR\",\"loop_factory\":\"$NOT_CARE_ADDR\",\"astroport_factory\":\"$NOT_CARE_ADDR\"}"
-ROUTER_INIT_TX=$(terrad tx wasm instantiate $ROUTER_CODE_ID "$ROUTER_INIT_MSG" --label "terraswap_router" --from $WALLET $TXFLAG -y --output json)
+ROUTER_INIT_TX=$(terrad tx wasm instantiate $ROUTER_CODE_ID "$ROUTER_INIT_MSG" --no-admin --label "terraswap_router" --from $WALLET $TXFLAG -y --output json)
 ROUTER_INIT_TX_HASH=$(echo $ROUTER_INIT_TX | jq -r .txhash)
-echo -e "\nInstantiated terraswap_router contract with tx hash: $ROUTER_INIT_TX_HASH"
+echo "Instantiated terraswap_router contract with tx hash: $ROUTER_INIT_TX_HASH"
 sleep 5
 ROUTER_ADDR=$(terrad query tx $ROUTER_INIT_TX_HASH --output json | jq -r '.logs[0].events[] | select(.type == "instantiate") | .attributes[] | select (.key == "_contract_address") | .value')
 
 # write FACTOR_ADDR and ROUTER_ADDR into json
 echo -e "\nWriting FACTORY_ADDR and ROUTER_ADDR into json..."
 echo "{\"factory_addr\":\"$FACTORY_ADDR\",\"router_addr\":\"$ROUTER_ADDR\"}" > $STORAGE_PATH/terraswap-contracts.json
-echo -e "\nWrited FACTORY_ADDR and ROUTER_ADDR to json"
+echo "Writed FACTORY_ADDR and ROUTER_ADDR to json"
 
 # ===== Step 3: Add native token decimals =====
 echo -e "\nAdding native token decimals (uluna) to terraswap_factory..."
@@ -99,5 +99,5 @@ sleep 6
 TX_AGRS="{\"add_native_token_decimals\":{\"denom\":\"uluna\",\"decimals\":6}}"
 TX=$(terrad tx wasm execute $FACTORY_ADDR "$TX_AGRS" --from $WALLET $TXFLAG -y --output json)
 TX_HASH=$(echo $TX | jq -r .txhash)
-echo -e "\nTx hash: $TX_HASH"
+echo "Tx hash: $TX_HASH"
 

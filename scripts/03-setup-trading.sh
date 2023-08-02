@@ -3,6 +3,16 @@
 WALLET=$1
 STORAGE_PATH=$2
 
+if [ -z "$WALLET" ]; then
+    echo "Wallet address is required"
+    exit 1
+fi
+
+if [ -z "$STORAGE_PATH" ]; then
+    echo "Storage path is required"
+    exit 1
+fi
+
 OWNER="owner"
 TXFLAG="--chain-id localterra --gas auto --gas-adjustment 1.2"
 CREMAT_TOKEN_ADDR=$(cat $STORAGE_PATH/cremation/cremation-contracts.json | jq -r '.token_addr')
@@ -52,11 +62,12 @@ sleep 6
 
 # Provide Liquidity
 echo -e "\nProviding liquidity..."
-LUNC_AMOUNT=10000000
+LUNC_AMOUNT=100000000
 PROVIDE_LIQUIDITY_ARGS="{\"provide_liquidity\":{\"assets\":[{\"amount\":\"$LUNC_AMOUNT\",\"info\":{\"native_token\":{\"denom\":\"uluna\"}}},{\"amount\":\"$OWNER_BALANCE\",\"info\":{\"token\":{\"contract_addr\":\"$CREMAT_TOKEN_ADDR\"}}}]}}"
 PROVIDE_LIQUIDITY_TX=$(terrad tx wasm execute $PAIR_ADDR $PROVIDE_LIQUIDITY_ARGS --from $OWNER --amount ${LUNC_AMOUNT}uluna $TXFLAG -y --output json)
 PROVIDE_LIQUIDITY_TX_HASH=$(echo $PROVIDE_LIQUIDITY_TX | jq -r .txhash)
 echo "Provide liquidity tx hash: $PROVIDE_LIQUIDITY_TX_HASH"
+sleep 6
 
 # ===== Step 4: Lock Liquidity Token =====
 echo -e "\nLocking liquidity token..."
