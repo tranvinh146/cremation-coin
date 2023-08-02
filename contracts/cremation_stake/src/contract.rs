@@ -1,6 +1,6 @@
 use cosmwasm_std::{
-    attr, from_binary, to_binary, Addr, Binary, Decimal, Deps, DepsMut, Env, MessageInfo,
-    QueryRequest, Response, StdResult, Uint128, WasmMsg, WasmQuery,
+    attr, entry_point, from_binary, to_binary, Addr, Binary, Decimal, Deps, DepsMut, Env,
+    MessageInfo, QueryRequest, Response, StdResult, Uint128, WasmMsg, WasmQuery,
 };
 use cw2::set_contract_version;
 use cw20::{Cw20ExecuteMsg, Cw20QueryMsg, Cw20ReceiveMsg, MinterResponse, TokenInfoResponse};
@@ -29,6 +29,7 @@ pub const REWARD_INFO: [RewardInfoItem; 3] = [
     },
 ];
 
+#[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
     _env: Env,
@@ -60,6 +61,7 @@ pub fn instantiate(
     Ok(Response::default())
 }
 
+#[cfg_attr(not(feature = "library"), entry_point)]
 pub fn execute(
     deps: DepsMut,
     env: Env,
@@ -67,8 +69,19 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::Receive { msg } => execute::receive_cw20(deps, env, info, msg),
+        ExecuteMsg::Receive(msg) => execute::receive_cw20(deps, env, info, msg),
         ExecuteMsg::Unstake {} => execute::unstake(deps, env, info),
+    }
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+    match msg {
+        QueryMsg::Staked { address } => to_binary(&query::staked(deps, address)?),
+        QueryMsg::RewardInfo {} => to_binary(&query::reward_info(deps)?),
+        QueryMsg::CanStake {} => to_binary(&query::can_stake(deps)?),
+        QueryMsg::RemainingRewards {} => to_binary(&query::remaining_rewards(deps)?),
+        QueryMsg::TotalPendingRewards {} => to_binary(&query::total_pending_rewards(deps)?),
     }
 }
 
@@ -133,6 +146,11 @@ pub mod execute {
                     .iter()
                     .find(|item| item.period == staked.period)
                     .unwrap();
+                let total_pending_rewards = TOTAL_PENDING_REWARDS.load(deps.storage)?;
+                let reward = staked.staked_amount * reward_info.reward_rate;
+
+                TOTAL_PENDING_REWARDS.save(deps.storage, &(total_pending_rewards - reward))?;
+                STAKE.remove(deps.storage, &sender);
 
                 let mut messages = vec![WasmMsg::Execute {
                     contract_addr: token_address.to_string(),
@@ -151,12 +169,9 @@ pub mod execute {
                 let claim_reward_at = staked.start_time.plus_days(reward_info.staking_days);
 
                 if env.block.time >= claim_reward_at {
-                    let reward = staked.staked_amount * reward_info.reward_rate;
                     let remaining_rewards = REMAINING_REWARDS.load(deps.storage)?;
-                    let total_pending_rewards = TOTAL_PENDING_REWARDS.load(deps.storage)?;
-                    TOTAL_PENDING_REWARDS.save(deps.storage, &(total_pending_rewards - reward))?;
+
                     REMAINING_REWARDS.save(deps.storage, &(remaining_rewards - reward))?;
-                    STAKE.remove(deps.storage, &sender);
 
                     let mint_reward_msg = Cw20ExecuteMsg::Mint {
                         recipient: sender.to_string(),
@@ -174,14 +189,6 @@ pub mod execute {
             }
             None => Err(ContractError::NotStaked {}),
         }
-    }
-}
-
-pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
-    match msg {
-        QueryMsg::Staked { address } => to_binary(&query::staked(deps, address)?),
-        QueryMsg::RewardInfo {} => to_binary(&query::reward_info()?),
-        QueryMsg::CanStake {} => to_binary(&query::can_stake(deps)?),
     }
 }
 
@@ -215,8 +222,9 @@ pub mod query {
         }
     }
 
-    pub fn reward_info() -> StdResult<RewardInfoResponse> {
+    pub fn reward_info(deps: Deps) -> StdResult<RewardInfoResponse> {
         Ok(RewardInfoResponse {
+            token_reward: TOKEN_ADDRESS.load(deps.storage)?,
             reward_info: REWARD_INFO,
         })
     }
@@ -226,5 +234,17 @@ pub mod query {
         let total_pending_rewards = TOTAL_PENDING_REWARDS.load(deps.storage)?;
         let can_stake = remaining_rewards > total_pending_rewards;
         Ok(CanStakeResponse { can_stake })
+    }
+
+    pub fn remaining_rewards(deps: Deps) -> StdResult<RemainingRewardsResponse> {
+        let remaining_rewards = REMAINING_REWARDS.load(deps.storage)?;
+        Ok(RemainingRewardsResponse { remaining_rewards })
+    }
+
+    pub fn total_pending_rewards(deps: Deps) -> StdResult<TotalPendingRewardsResponse> {
+        let total_pending_rewards = TOTAL_PENDING_REWARDS.load(deps.storage)?;
+        Ok(TotalPendingRewardsResponse {
+            total_pending_rewards,
+        })
     }
 }

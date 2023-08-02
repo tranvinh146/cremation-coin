@@ -23,7 +23,7 @@ pub struct InstantiateMsg {
 
 #[cw_serde]
 pub enum ExecuteMsg {
-    Receive { msg: Cw20ReceiveMsg },
+    Receive(Cw20ReceiveMsg),
     Unstake {},
 }
 
@@ -44,6 +44,12 @@ pub enum QueryMsg {
     /// Check if staking is available.
     #[returns(CanStakeResponse)]
     CanStake {},
+    /// Returns the remaining rewards.
+    #[returns(RemainingRewardsResponse)]
+    RemainingRewards {},
+    /// Returns total pending rewards.
+    #[returns(TotalPendingRewardsResponse)]
+    TotalPendingRewards {},
 }
 
 #[cw_serde]
@@ -55,10 +61,21 @@ pub struct StakedResponse {
 
 #[cw_serde]
 pub struct RewardInfoResponse {
+    pub token_reward: Addr,
     pub reward_info: [RewardInfoItem; 3],
 }
 
 #[cw_serde]
 pub struct CanStakeResponse {
     pub can_stake: bool,
+}
+
+#[cw_serde]
+pub struct RemainingRewardsResponse {
+    pub remaining_rewards: Uint128,
+}
+
+#[cw_serde]
+pub struct TotalPendingRewardsResponse {
+    pub total_pending_rewards: Uint128,
 }
