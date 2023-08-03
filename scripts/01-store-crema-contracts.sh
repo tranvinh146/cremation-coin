@@ -3,9 +3,6 @@
 WALLET=$1
 CREMATION_COIN_PATH=$2
 
-NOT_CARE_ADDR="terra1lx37m2rhekrxh3fhx8edymaf2hq0lqe5gvm5vm"
-TXFLAG="--chain-id localterra --gas auto --gas-adjustment 1.2"
-
 if [ -z "$WALLET" ]; then
     echo "Wallet address is required"
     exit 1
@@ -18,6 +15,7 @@ fi
 
 MAX_ATTEMPTS=2
 SLEEP_TIME=5
+TXFLAG="--chain-id localterra --gas auto --gas-adjustment 1.2"
 
 STORAGE_PATH="store/local/cremation"
 mkdir -p $STORAGE_PATH
