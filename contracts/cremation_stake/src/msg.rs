@@ -11,7 +11,7 @@ pub enum StakingPeriod {
 
 #[cw_serde]
 pub struct RewardInfoItem {
-    pub period: StakingPeriod,
+    pub staking_period: StakingPeriod,
     pub staking_days: u64,
     pub reward_rate: Decimal,
 }

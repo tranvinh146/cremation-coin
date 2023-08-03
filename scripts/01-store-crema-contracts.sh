@@ -41,7 +41,7 @@ write_code_id_to_file() {
 
 # ===== Step 1: Store code =====
 echo -e "\nStoring code cremation contracts..."
-CONTRACTS=("cremation_token" "cremation_lock")
+CONTRACTS=("cremation_token" "cremation_lock" "cremation_stake")
 TX_HASH_LIST=()
 for CONTRACT_NAME in "${CONTRACTS[@]}"
 do

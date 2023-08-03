@@ -13,17 +13,17 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub const REWARD_INFO: [RewardInfoItem; 3] = [
     RewardInfoItem {
-        period: StakingPeriod::Short,
+        staking_period: StakingPeriod::Short,
         staking_days: 30,
         reward_rate: Decimal::raw(3 * 10_000_000_000_000_000), // Decimal Places 18
     },
     RewardInfoItem {
-        period: StakingPeriod::Medium,
+        staking_period: StakingPeriod::Medium,
         staking_days: 90,
         reward_rate: Decimal::raw(10 * 10_000_000_000_000_000),
     },
     RewardInfoItem {
-        period: StakingPeriod::Long,
+        staking_period: StakingPeriod::Long,
         staking_days: 180,
         reward_rate: Decimal::raw(225 * 1_000_000_000_000_000),
     },
@@ -113,7 +113,7 @@ pub mod execute {
                 let total_pending_rewards = TOTAL_PENDING_REWARDS.load(deps.storage)?;
                 let reward_info = REWARD_INFO
                     .iter()
-                    .find(|item| item.period == staking_period)
+                    .find(|item| item.staking_period == staking_period)
                     .unwrap();
                 let pending_reward = amount * reward_info.reward_rate;
                 if remaining_rewards < total_pending_rewards + pending_reward {
@@ -144,7 +144,7 @@ pub mod execute {
                 let token_address = TOKEN_ADDRESS.load(deps.storage)?;
                 let reward_info = REWARD_INFO
                     .iter()
-                    .find(|item| item.period == staked.period)
+                    .find(|item| item.staking_period == staked.period)
                     .unwrap();
                 let total_pending_rewards = TOTAL_PENDING_REWARDS.load(deps.storage)?;
                 let reward = staked.staked_amount * reward_info.reward_rate;
@@ -201,7 +201,7 @@ pub mod query {
             Some(info) => {
                 let reward_info = REWARD_INFO
                     .iter()
-                    .find(|item| item.period == info.period)
+                    .find(|item| item.staking_period == info.period)
                     .unwrap();
                 let pending_reward = info.staked_amount * reward_info.reward_rate;
                 let claim_reward_at = info

@@ -231,7 +231,7 @@ fn stake_token() {
         .unwrap();
     let reward_info = REWARD_INFO
         .iter()
-        .find(|x| x.period == staking_period)
+        .find(|x| x.staking_period == staking_period)
         .unwrap();
     let expect_staked_amount = before_staking_owner_balance - after_staking_owner_balance;
     assert_eq!(staked_res.staked_amount, expect_staked_amount);
@@ -398,7 +398,7 @@ fn unstake_token_with_reward() {
     // update block
     let reward_info = REWARD_INFO
         .iter()
-        .find(|x| x.period == staking_period)
+        .find(|x| x.staking_period == staking_period)
         .unwrap();
     app.update_block(|block| {
         block.time = block.time.plus_days(reward_info.staking_days);
@@ -572,7 +572,7 @@ fn unstake_and_stake_again() {
     // update block
     let reward_info = REWARD_INFO
         .iter()
-        .find(|x| x.period == staking_period)
+        .find(|x| x.staking_period == staking_period)
         .unwrap();
     app.update_block(|block| {
         block.time = block.time.plus_days(reward_info.staking_days);
@@ -701,7 +701,7 @@ fn multiple_staker() {
             .unwrap();
         let reward_info = REWARD_INFO
             .iter()
-            .find(|x| x.period == staking_periods[index])
+            .find(|x| x.staking_period == staking_periods[index])
             .unwrap();
         let expect_staked_amount = staker_balances[index];
         assert_eq!(staked_res.staked_amount, expect_staked_amount);
@@ -743,7 +743,7 @@ fn multiple_staker() {
     // update block
     let reward_info = REWARD_INFO
         .iter()
-        .find(|x| x.period == StakingPeriod::Long)
+        .find(|x| x.staking_period == StakingPeriod::Long)
         .unwrap();
     app.update_block(|block| {
         block.time = block.time.plus_days(reward_info.staking_days);
