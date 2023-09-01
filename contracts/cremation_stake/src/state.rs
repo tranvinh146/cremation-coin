@@ -5,6 +5,7 @@ use cw_storage_plus::{Item, Map};
 use crate::msg::StakingPeriod;
 
 pub const TOKEN_ADDRESS: Item<Addr> = Item::new("token_address");
+pub const TOTAL_STAKED_AMOUNT: Item<Uint128> = Item::new("total_staked_amount");
 pub const REMAINING_REWARDS: Item<Uint128> = Item::new("remaining_rewards");
 pub const TOTAL_PENDING_REWARDS: Item<Uint128> = Item::new("total_pending_rewards");
 

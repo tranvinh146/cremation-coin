@@ -35,6 +35,8 @@ pub enum Cw20HookMsg {
 #[cw_serde]
 #[derive(QueryResponses)]
 pub enum QueryMsg {
+    #[returns(TotalStakedResponse)]
+    TotalStaked {},
     /// Returns the staking status of the given address.
     #[returns(StakedResponse)]
     Staked { address: Addr },
@@ -50,6 +52,11 @@ pub enum QueryMsg {
     /// Returns total pending rewards.
     #[returns(TotalPendingRewardsResponse)]
     TotalPendingRewards {},
+}
+
+#[cw_serde]
+pub struct TotalStakedResponse {
+    pub total_staked_amount: Uint128,
 }
 
 #[cw_serde]

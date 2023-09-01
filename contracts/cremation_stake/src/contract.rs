@@ -54,6 +54,7 @@ pub fn instantiate(
     let current_supply = token_info_res.total_supply;
     let mintable_amount = maximum_supply - current_supply;
 
+    TOTAL_STAKED_AMOUNT.save(deps.storage, &Uint128::zero())?;
     REMAINING_REWARDS.save(deps.storage, &mintable_amount)?;
     TOTAL_PENDING_REWARDS.save(deps.storage, &Uint128::zero())?;
     TOKEN_ADDRESS.save(deps.storage, &msg.token_address)?;
@@ -77,6 +78,7 @@ pub fn execute(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
+        QueryMsg::TotalStaked {} => to_binary(&query::total_staked(deps)?),
         QueryMsg::Staked { address } => to_binary(&query::staked(deps, address)?),
         QueryMsg::RewardInfo {} => to_binary(&query::reward_info(deps)?),
         QueryMsg::CanStake {} => to_binary(&query::can_stake(deps)?),
@@ -127,6 +129,9 @@ pub mod execute {
                     period: staking_period,
                 };
                 STAKE.save(deps.storage, &sender, &staked)?;
+                TOTAL_STAKED_AMOUNT.update(deps.storage, |total| -> StdResult<_> {
+                    Ok(total + staked.staked_amount)
+                })?;
                 Ok(Response::new()
                     .add_attribute("action", "stake")
                     .add_attribute("staker", &sender)
@@ -165,6 +170,9 @@ pub mod execute {
                     attr("staker", &sender),
                     attr("unstaked_amount", staked.staked_amount),
                 ];
+                TOTAL_STAKED_AMOUNT.update(deps.storage, |total| -> StdResult<_> {
+                    Ok(total - staked.staked_amount)
+                })?;
 
                 let claim_reward_at = staked.start_time.plus_days(reward_info.staking_days);
 
@@ -194,6 +202,13 @@ pub mod execute {
 
 pub mod query {
     use super::*;
+
+    pub fn total_staked(deps: Deps) -> StdResult<TotalStakedResponse> {
+        let total_staked_amount = TOTAL_STAKED_AMOUNT.load(deps.storage)?;
+        Ok(TotalStakedResponse {
+            total_staked_amount,
+        })
+    }
 
     pub fn staked(deps: Deps, address: Addr) -> StdResult<StakedResponse> {
         let staked_opt = STAKE.may_load(deps.storage, &address)?;
