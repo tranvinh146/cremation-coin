@@ -9,7 +9,7 @@ STAKING_CONTRACT=$MOCK_STAKING_CONTRACT
 TXFLAG="--chain-id localterra --gas auto --gas-adjustment 1.2"
 
 if [ -z "$WALLET" ]; then
-    echo "Wallet address is required"
+    echo "Wallet is required"
     exit 1
 fi
 
@@ -21,7 +21,7 @@ fi
 instantiate_contract() {
     CONTRACT_NAME=$1
     INIT_MSG=$2
-    CODE_ID=$(cat $STORAGE_PATH/${CONTRACT_NAME}-store-data.json | jq -r '.code_id')
+    CODE_ID=$(cat $STORAGE_PATH/cremation/${CONTRACT_NAME}-store-data.json | jq -r '.code_id')
     TX=$(terrad tx wasm instantiate $CODE_ID "$INIT_MSG" --admin $(terrad keys show $WALLET -a) --label $CONTRACT_NAME --from $WALLET $TXFLAG --output json -y)
     TX_HASH=$(echo $TX | jq -r '.txhash')
     echo $TX_HASH
@@ -64,5 +64,5 @@ echo "Update minter tx hash: $UPDATE_MINTER_TX_HASH"
 
 # write TOKEN_ADDRESS and LOCK_ADDRESS to file
 echo -e "\nWriting contract addresses to file..."
-echo "{\"token_addr\":\"$TOKEN_ADDRESS\",\"lock_addr\":\"$LOCK_ADDRESS\",\"stake_addr\":\"$STAKE_ADDRESS\"}" > $STORAGE_PATH/cremation-contracts.json
-echo "Writed contract addresses into \"$STORAGE_PATH\" directory"
+echo "{\"token_addr\":\"$TOKEN_ADDRESS\",\"lock_addr\":\"$LOCK_ADDRESS\",\"stake_addr\":\"$STAKE_ADDRESS\"}" > $STORAGE_PATH/cremation/cremation-contracts.json
+echo "Writed contract addresses into \"$STORAGE_PATH/cremation\" directory"

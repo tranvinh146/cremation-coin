@@ -19,8 +19,6 @@ CREMAT_TOKEN_ADDR=$(cat $STORAGE_PATH/cremation/cremation-contracts.json | jq -r
 CREMAT_LOCK_ADDR=$(cat $STORAGE_PATH/cremation/cremation-contracts.json | jq -r '.lock_addr')
 TERRASWAP_FACTORY_ADDR=$(cat $STORAGE_PATH/terraswap/terraswap-contracts.json | jq -r '.factory_addr')
 TERRASWAP_ROUTER_ADDR=$(cat $STORAGE_PATH/terraswap/terraswap-contracts.json | jq -r '.router_addr')
-PAIR_ADDR=$(cat $STORAGE_PATH/cremation/trading-pair-contracts.json | jq -r '.pair_addr') # overwrote if create pair again
-LIQUIDITY_TOKEN_ADDR=$(cat $STORAGE_PATH/cremation/trading-pair-contracts.json | jq -r '.liquidity_token_addr') # overwrote if create pair again
 
 # ===== Step 1: Create Pair =====
 echo -e "\nCreating pair: CREMATLUNC - LUNC..."
@@ -49,6 +47,9 @@ echo "Set config tx hash: $SET_CONFIG_TX_HASH"
 sleep 6
 
 # ===== Step 3: Provide Liquidity =====
+PAIR_ADDR=$(cat $STORAGE_PATH/cremation/trading-pair-contracts.json | jq -r '.pair_addr')
+LIQUIDITY_TOKEN_ADDR=$(cat $STORAGE_PATH/cremation/trading-pair-contracts.json | jq -r '.liquidity_token_addr')
+
 QUERY_OWNER_BALANCE_ARGS="{\"balance\":{\"address\":\"$(terrad keys show $OWNER -a)\"}}"
 OWNER_BALANCE=$(terrad query wasm contract-state smart $CREMAT_TOKEN_ADDR $QUERY_OWNER_BALANCE_ARGS --output json | jq -r .data.balance)
 

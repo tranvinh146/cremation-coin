@@ -1,15 +1,15 @@
 #!/bin/bash
 
 WALLET=$1
-CREMATION_COIN_PATH=$2
+CREMATION_ARTIFACTS_PATH=$2
 
 if [ -z "$WALLET" ]; then
-    echo "Wallet address is required"
+    echo "Wallet is required"
     exit 1
 fi
 
-if [ -z "$CREMATION_COIN_PATH" ]; then
-    echo "Cremation coin path is required"
+if [ -z "$CREMATION_ARTIFACTS_PATH" ]; then
+    echo "Cremation artifacts path is required"
     exit 1
 fi
 
@@ -22,7 +22,7 @@ mkdir -p $STORAGE_PATH
 
 store_contract_code() {
     CONTRACT_NAME=$1
-    TX=$(terrad tx wasm store $CREMATION_COIN_PATH/$CONTRACT_NAME.wasm --from $WALLET $TXFLAG --output json -y)
+    TX=$(terrad tx wasm store $CREMATION_ARTIFACTS_PATH/$CONTRACT_NAME.wasm --from $WALLET $TXFLAG --output json -y)
     TX_HASH=$(echo $TX | jq -r '.txhash')
     echo $TX_HASH
 }
@@ -46,7 +46,7 @@ do
     TX_HASH=$(store_contract_code "$CONTRACT_NAME")
     echo "Stored $CONTRACT_NAME contract with tx hash: $TX_HASH"
     TX_HASH_LIST+=("$TX_HASH")
-    sleep 4
+    sleep 6
 done
 
 sleep 2

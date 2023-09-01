@@ -1,18 +1,18 @@
 #!/bin/bash
 
 WALLET=$1
-TERRSWAP_PATH=$2
+TERRSWAP_ARTIFACTS_PATH=$2
 
 NOT_CARE_ADDR="terra1lx37m2rhekrxh3fhx8edymaf2hq0lqe5gvm5vm"
 TXFLAG="--chain-id localterra --gas auto --gas-adjustment 1.2"
 
 if [ -z "$WALLET" ]; then
-    echo "Wallet address is required"
+    echo "Wallet is required"
     exit 1
 fi
 
-if [ -z "$TERRSWAP_PATH" ]; then
-    echo "Terraswap path is required"
+if [ -z "$TERRSWAP_ARTIFACTS_PATH" ]; then
+    echo "Terraswap artifacts is required"
     exit 1
 fi
 
@@ -22,7 +22,7 @@ mkdir -p $STORAGE_PATH
 # store contracts
 store_contract_code() {
     CONTRACT_NAME=$1
-    TX=$(terrad tx wasm store $TERRSWAP_PATH/$CONTRACT_NAME.wasm --from $WALLET $TXFLAG --output json -y)
+    TX=$(terrad tx wasm store $TERRSWAP_ARTIFACTS_PATH/$CONTRACT_NAME.wasm --from $WALLET $TXFLAG --output json -y)
     TX_HASH=$(echo $TX | jq -r '.txhash')
     echo $TX_HASH
 }
@@ -46,10 +46,10 @@ do
     TX_HASH=$(store_contract_code "$CONTRACT_NAME")
     echo "Stored $CONTRACT_NAME contract with tx hash: $TX_HASH"
     TX_HASH_LIST+=("$TX_HASH")
-    sleep 4
+    sleep 6
 done
 
-sleep 2
+sleep 5
 
 echo -e "\nWriting code info to file..."
 for idx in "${!CONTRACTS[@]}"
