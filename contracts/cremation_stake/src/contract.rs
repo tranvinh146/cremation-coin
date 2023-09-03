@@ -88,6 +88,8 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 }
 
 pub mod execute {
+    use cw20::BalanceResponse;
+
     use super::*;
 
     pub fn receive_cw20(
@@ -103,6 +105,24 @@ pub mod execute {
 
         let sender = deps.api.addr_validate(&cw20_msg.sender)?;
         let amount = cw20_msg.amount;
+
+        if amount.is_zero() {
+            return Err(ContractError::InvalidStakeAmount {});
+        }
+
+        let staker_balance: BalanceResponse = deps
+            .querier
+            .query_wasm_smart(
+                &token_address,
+                &Cw20QueryMsg::Balance {
+                    address: sender.to_string(),
+                },
+            )
+            .unwrap();
+
+        if staker_balance.balance < amount {
+            return Err(ContractError::InvalidStakeAmount {});
+        }
 
         match from_binary(&cw20_msg.msg)? {
             Cw20HookMsg::Stake { staking_period } => {

@@ -15,4 +15,8 @@ pub enum ContractError {
     UnsupportedToken {},
     #[error("Staking Unavailable")]
     StakingUnavailable {},
+    #[error("Invalid Stake Amount")]
+    InvalidStakeAmount {},
+    #[error("Insufficient Balance")]
+    InsufficientBalance {},
 }
