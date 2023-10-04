@@ -189,6 +189,11 @@ pub mod execute {
         if info.sender != owner {
             return Err(ContractError::Unauthorized {});
         }
+
+        validate_tax_format(&buy_tax)?;
+        validate_tax_format(&sell_tax)?;
+        validate_tax_format(&transfer_tax)?;
+
         let tax_info = TaxInfo {
             buy_tax,
             sell_tax,
@@ -550,6 +555,18 @@ pub mod execute {
     fn is_sell_operation(config: &Config, from: Addr, to: Addr) -> bool {
         to == config.terraswap_router
             || (from != config.terraswap_router && to == config.terraswap_pair)
+    }
+
+    fn validate_tax_format(tax: &Option<FractionFormat>) -> Result<(), ContractError> {
+        match tax {
+            Some(tax) => {
+                if tax.numerator > tax.denominator {
+                    return Err(StdError::generic_err("Invalid fraction format").into());
+                }
+            }
+            None => {}
+        }
+        Ok(())
     }
 }
 

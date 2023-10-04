@@ -1,0 +1,22 @@
+{
+  "owner": "terra1tqtltge6teha3sssjxkh3x9wv726ddsauatzrf",
+  "tax_info": {
+    "buy_tax": { "numerator": "8", "denominator": "100" },
+    "sell_tax": { "numerator": "8", "denominator": "100" }
+  },
+  "cw20_instantiate_msg": {
+    "name": "Cremation Coin",
+    "symbol": "CREMATLUNC",
+    "decimals": 6,
+    "initial_balances": [
+      {
+        "address": "terra1tqtltge6teha3sssjxkh3x9wv726ddsauatzrf",
+        "amount": "850000000000000000"
+      }
+    ],
+    "mint": {
+      "minter": "terra1tqtltge6teha3sssjxkh3x9wv726ddsauatzrf",
+      "cap": "1000000000000000000"
+    }
+  }
+}
