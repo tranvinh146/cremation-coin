@@ -585,14 +585,14 @@ fn collect_sell_tax_when_execute_send_from() {
 // test collect buy tax when execute transfer cw20
 // terraswap pair -> buyer
 #[test]
-fn collect_buy_tax_when_execute_transfer() {
+fn collect_transfer_tax_when_execute_transfer() {
     let mut deps = mock_dependencies();
     let env = mock_env();
     let creator = "creator";
     let owner = "owner";
-    let buyer = "buyer";
-    let terraswap_pair = "terraswap_pair";
-    let terraswap_pair_balance = Uint128::new(100_000);
+    let sender = "sender";
+    let recipient = "recipient";
+    let sender_balance = Uint128::new(100_000);
     let tax_rate = FractionFormat {
         numerator: Uint128::new(8),
         denominator: Uint128::new(100),
@@ -600,13 +600,13 @@ fn collect_buy_tax_when_execute_transfer() {
     let msg = InstantiateMsg {
         owner: Addr::unchecked(owner),
         tax_info: TaxInfo {
-            buy_tax: Some(tax_rate.clone()),
+            buy_tax: None,
             sell_tax: None,
-            transfer_tax: None,
+            transfer_tax: Some(tax_rate.clone()),
         },
         cw20_instantiate_msg: mock_cw20_instantiate_msg(vec![Cw20Coin {
-            address: terraswap_pair.to_string(),
-            amount: terraswap_pair_balance,
+            address: sender.to_string(),
+            amount: sender_balance,
         }]),
     };
     instantiate(deps.as_mut(), env, mock_info(creator, &[]), msg).unwrap();
@@ -623,12 +623,12 @@ fn collect_buy_tax_when_execute_transfer() {
     .unwrap();
 
     // transfer from terraswap pair to buyer
-    let info = mock_info(terraswap_pair, &[]);
+    let info = mock_info(sender, &[]);
     let transfer_amount = Uint128::new(100);
     let expect_tax_amount =
         transfer_amount.multiply_ratio(tax_rate.numerator, tax_rate.denominator);
     let msg = ExecuteMsg::Transfer {
-        recipient: buyer.to_string(),
+        recipient: recipient.to_string(),
         amount: transfer_amount,
     };
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
@@ -641,22 +641,19 @@ fn collect_buy_tax_when_execute_transfer() {
         deps.as_ref(),
         mock_env(),
         QueryMsg::Balance {
-            address: terraswap_pair.to_string(),
+            address: sender.to_string(),
         },
     )
     .unwrap();
     let balance_res: cw20::BalanceResponse = from_binary(&balance_query).unwrap();
-    assert_eq!(
-        balance_res.balance,
-        terraswap_pair_balance - transfer_amount
-    );
+    assert_eq!(balance_res.balance, sender_balance - transfer_amount);
 
     // check receiver balance
     let balance_query = query(
         deps.as_ref(),
         mock_env(),
         QueryMsg::Balance {
-            address: buyer.to_string(),
+            address: recipient.to_string(),
         },
     )
     .unwrap();
@@ -678,16 +675,16 @@ fn collect_buy_tax_when_execute_transfer() {
 
 // test collect buy tax when execute transfer_from cw20
 // seller approves spender
-// spender transfer cw20 from seller -> terraswap pair
+// spender transfer cw20 from seller -> terraswap router
 #[test]
-fn collect_buy_tax_when_execute_transfer_from() {
+fn collect_transfer_tax_when_execute_transfer_from() {
     let mut deps = mock_dependencies();
     let env = mock_env();
     let creator = "creator";
     let owner = "owner";
     let spender = "spender";
-    let seller = "seller";
-    let terraswap_pair = "terraswap_pair";
+    let sender = "sender";
+    let recipient = "recipient";
     let seller_balance = Uint128::new(100_000);
     let transfer_amount = Uint128::new(100);
     let tax_rate = FractionFormat {
@@ -698,11 +695,11 @@ fn collect_buy_tax_when_execute_transfer_from() {
         owner: Addr::unchecked(owner),
         tax_info: TaxInfo {
             buy_tax: None,
-            sell_tax: Some(tax_rate.clone()),
-            transfer_tax: None,
+            sell_tax: None,
+            transfer_tax: Some(tax_rate.clone()),
         },
         cw20_instantiate_msg: mock_cw20_instantiate_msg(vec![Cw20Coin {
-            address: seller.to_string(),
+            address: sender.to_string(),
             amount: seller_balance,
         }]),
     };
@@ -720,7 +717,7 @@ fn collect_buy_tax_when_execute_transfer_from() {
     .unwrap();
 
     // approve from seller to spender
-    let info = mock_info(seller, &[]);
+    let info = mock_info(sender, &[]);
     let msg = ExecuteMsg::IncreaseAllowance {
         spender: spender.to_string(),
         amount: transfer_amount,
@@ -733,8 +730,8 @@ fn collect_buy_tax_when_execute_transfer_from() {
     let expect_tax_amount =
         transfer_amount.multiply_ratio(tax_rate.numerator, tax_rate.denominator);
     let msg = ExecuteMsg::TransferFrom {
-        owner: seller.to_string(),
-        recipient: terraswap_pair.to_string(),
+        owner: sender.to_string(),
+        recipient: recipient.to_string(),
         amount: transfer_amount,
     };
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
@@ -747,7 +744,7 @@ fn collect_buy_tax_when_execute_transfer_from() {
         deps.as_ref(),
         mock_env(),
         QueryMsg::Balance {
-            address: seller.to_string(),
+            address: sender.to_string(),
         },
     )
     .unwrap();
@@ -759,7 +756,7 @@ fn collect_buy_tax_when_execute_transfer_from() {
         deps.as_ref(),
         mock_env(),
         QueryMsg::Balance {
-            address: terraswap_pair.to_string(),
+            address: recipient.to_string(),
         },
     )
     .unwrap();

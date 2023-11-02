@@ -229,7 +229,8 @@ pub mod execute {
         let config = CONFIG.load(deps.storage)?;
         let sender_addr = info.sender;
         let rcpt_addr = deps.api.addr_validate(&contract)?;
-        let tax_amount = compute_tax(deps.storage, &sender_addr, &rcpt_addr, amount);
+        let is_transfer = false;
+        let tax_amount = compute_tax(deps.storage, &sender_addr, &rcpt_addr, amount, is_transfer);
 
         update_balance_with_tax(deps.storage, &sender_addr, &rcpt_addr, amount, tax_amount)?;
 
@@ -275,7 +276,8 @@ pub mod execute {
         let config = CONFIG.load(deps.storage)?;
         let owner_addr = deps.api.addr_validate(&owner)?;
         let rcpt_addr = deps.api.addr_validate(&contract)?;
-        let tax_amount = compute_tax(deps.storage, &owner_addr, &rcpt_addr, amount);
+        let is_transfer = false;
+        let tax_amount = compute_tax(deps.storage, &owner_addr, &rcpt_addr, amount, is_transfer);
 
         // deduct allowance before doing anything else have enough allowance
         deduct_allowance(deps.storage, &owner_addr, &info.sender, &env.block, amount)?;
@@ -314,15 +316,15 @@ pub mod execute {
 
     pub fn transfer(
         deps: DepsMut,
-        env: Env,
+        _env: Env,
         info: MessageInfo,
         recipient: String,
         amount: Uint128,
     ) -> Result<Response, ContractError> {
-        let config = CONFIG.load(deps.storage)?;
         let sender_addr = info.sender;
         let rcpt_addr = deps.api.addr_validate(&recipient)?;
-        let tax_amount = compute_tax(deps.storage, &sender_addr, &rcpt_addr, amount);
+        let is_transfer = true;
+        let tax_amount = compute_tax(deps.storage, &sender_addr, &rcpt_addr, amount, is_transfer);
 
         update_balance_with_tax(deps.storage, &sender_addr, &rcpt_addr, amount, tax_amount)?;
 
@@ -336,14 +338,6 @@ pub mod execute {
             attrs.push(attr("tax_amount", tax));
         }
 
-        if is_sell_operation(&config, sender_addr, rcpt_addr) {
-            let msg_opt = swap_collected_tax_to_native(deps, env, config.terraswap_router)?;
-            if let Some(swap_msg) = msg_opt {
-                attrs.push(attr("action", "collected_tax_swap"));
-                return Ok(Response::new().add_message(swap_msg).add_attributes(attrs));
-            }
-        }
-
         Ok(Response::new().add_attributes(attrs))
     }
 
@@ -355,10 +349,10 @@ pub mod execute {
         recipient: String,
         amount: Uint128,
     ) -> Result<Response, ContractError> {
-        let config = CONFIG.load(deps.storage)?;
         let rcpt_addr = deps.api.addr_validate(&recipient)?;
         let owner_addr = deps.api.addr_validate(&owner)?;
-        let tax_amount = compute_tax(deps.storage, &owner_addr, &rcpt_addr, amount);
+        let is_transfer = true;
+        let tax_amount = compute_tax(deps.storage, &owner_addr, &rcpt_addr, amount, is_transfer);
 
         // deduct allowance before doing anything else have enough allowance
         deduct_allowance(deps.storage, &owner_addr, &info.sender, &env.block, amount)?;
@@ -373,16 +367,6 @@ pub mod execute {
         ];
         if let Some(tax) = tax_amount {
             attrs.push(attr("tax_amount", tax));
-        }
-
-        if is_sell_operation(&config, owner_addr, rcpt_addr) {
-            let msg_opt = swap_collected_tax_to_native(deps, env, config.terraswap_router)?;
-            if let Some(swap_msg) = msg_opt {
-                attrs.push(attr("action", "collected_tax_swap"));
-                return Ok(Response::new()
-                    .add_messages(vec![swap_msg])
-                    .add_attributes(attrs));
-            }
         }
 
         Ok(Response::new().add_attributes(attrs))
@@ -433,6 +417,7 @@ pub mod execute {
         from: &Addr,
         to: &Addr,
         amount: Uint128,
+        is_transfer: bool,
     ) -> Option<Uint128> {
         let config = CONFIG.load(store).unwrap();
         let tax_info = TAX_INFO.load(store).unwrap();
@@ -445,8 +430,8 @@ pub mod execute {
         let is_buy = is_buy_operation(&config, from.to_owned(), to.to_owned());
         let is_sell = is_sell_operation(&config, from.to_owned(), to.to_owned());
 
-        match (is_buy, is_sell) {
-            (true, false) => match tax_info.buy_tax {
+        match (is_transfer, is_buy, is_sell) {
+            (true, false, false) => match tax_info.transfer_tax {
                 Some(tax) => {
                     let tax_amount = amount
                         .checked_mul(tax.numerator)
@@ -459,7 +444,7 @@ pub mod execute {
                     return None;
                 }
             },
-            (false, true) => match tax_info.sell_tax {
+            (_, true, false) => match tax_info.buy_tax {
                 Some(tax) => {
                     let tax_amount = amount
                         .checked_mul(tax.numerator)
@@ -472,7 +457,7 @@ pub mod execute {
                     return None;
                 }
             },
-            _ => match tax_info.transfer_tax {
+            (_, false, true) => match tax_info.sell_tax {
                 Some(tax) => {
                     let tax_amount = amount
                         .checked_mul(tax.numerator)
@@ -485,6 +470,7 @@ pub mod execute {
                     return None;
                 }
             },
+            _ => None,
         }
     }
 
@@ -495,7 +481,9 @@ pub mod execute {
     ) -> Result<Option<CosmosMsg>, ContractError> {
         // check balance of collected tax address
         let collect_tax_addr = COLLECT_TAX_ADDRESS.load(deps.storage).unwrap();
-        let collected_tax_amount = BALANCES.load(deps.storage, &collect_tax_addr).unwrap();
+        let collected_tax_amount = BALANCES
+            .load(deps.storage, &collect_tax_addr)
+            .unwrap_or_default();
         if collected_tax_amount < SWAP_COLLECTED_TAX_THRESHOLD {
             return Ok(None);
         }
@@ -547,14 +535,19 @@ pub mod execute {
     }
 
     // receive token from terraswap pair
-    fn is_buy_operation(config: &Config, from: Addr, _to: Addr) -> bool {
-        from == config.terraswap_pair
+    fn is_buy_operation(config: &Config, from: Addr, to: Addr) -> bool {
+        from != to
+            && !((from == config.terraswap_pair && to == config.terraswap_router)
+                || (from == config.terraswap_router && to == config.terraswap_pair))
+            && from == config.terraswap_pair
     }
 
     // send token to terraswap router, or terraswap pair
     fn is_sell_operation(config: &Config, from: Addr, to: Addr) -> bool {
-        to == config.terraswap_router
-            || (from != config.terraswap_router && to == config.terraswap_pair)
+        from != to
+            && !((from == config.terraswap_pair && to == config.terraswap_router)
+                || (from == config.terraswap_router && to == config.terraswap_pair))
+            && (to == config.terraswap_router || to == config.terraswap_pair)
     }
 
     fn validate_tax_format(tax: &Option<FractionFormat>) -> Result<(), ContractError> {

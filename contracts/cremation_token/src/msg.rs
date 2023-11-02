@@ -6,6 +6,9 @@ use cw20_base::msg::InstantiateMsg as Cw20InstantiateMsg;
 use crate::state::{FractionFormat, TaxInfo};
 
 #[cw_serde]
+pub struct MigrateMsg {}
+
+#[cw_serde]
 pub struct InstantiateMsg {
     pub owner: Addr,
     pub tax_info: TaxInfo,

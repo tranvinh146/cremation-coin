@@ -6,7 +6,7 @@
   },
   "cw20_instantiate_msg": {
     "name": "Cremation Coin",
-    "symbol": "CREMATLUNC",
+    "symbol": "CREMAT",
     "decimals": 6,
     "initial_balances": [
       {
@@ -17,6 +17,11 @@
     "mint": {
       "minter": "terra1tqtltge6teha3sssjxkh3x9wv726ddsauatzrf",
       "cap": "1000000000000000000"
+    },
+    "marketing": {
+      "logo": {
+        "url": "https://cremat.vercel.app/logo.png"
+      }
     }
   }
 }
