@@ -114,6 +114,14 @@ pub enum ExecuteMsg {
         /// The address (if any) who can update this data structure
         marketing: Option<String>,
     },
+    InitializeMarketing {
+        /// A URL pointing to the project behind this token.
+        project: Option<String>,
+        /// A longer description of the token and it's utility. Designed for tooltips or such
+        description: Option<String>,
+        /// The address (if any) who can update this data structure
+        marketing: Option<String>,
+    },
     /// If set as the "marketing" role on the contract, upload a new URL, SVG, or PNG for the token
     UploadLogo(Logo),
 }

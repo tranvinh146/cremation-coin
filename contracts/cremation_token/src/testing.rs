@@ -86,7 +86,7 @@ fn proper_initialization() {
         deps.as_ref(),
         mock_env(),
         QueryMsg::Balance {
-            address: owner.clone().into(),
+            address: owner.into(),
         },
     )
     .unwrap();

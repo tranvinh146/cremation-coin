@@ -5,7 +5,7 @@ use cosmwasm_std::{
     StdResult, Storage, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
-use cw20::Cw20ReceiveMsg;
+use cw20::{Cw20ReceiveMsg, MarketingInfoResponse};
 use cw20_base::{
     allowances::{
         deduct_allowance, execute_burn_from, execute_decrease_allowance,
@@ -17,7 +17,7 @@ use cw20_base::{
         query_marketing_info, query_minter, query_token_info,
     },
     enumerable::{query_all_accounts, query_owner_allowances, query_spender_allowances},
-    state::BALANCES,
+    state::{BALANCES, LOGO, MARKETING_INFO},
     ContractError,
 };
 
@@ -111,6 +111,33 @@ pub fn execute(
             description,
             marketing,
         } => execute_update_marketing(deps, env, info, project, description, marketing),
+        ExecuteMsg::InitializeMarketing {
+            project,
+            description,
+            marketing,
+        } => {
+            let owner = OWNER.load(deps.storage)?;
+
+            if info.sender != owner {
+                return Err(ContractError::Unauthorized {});
+            }
+
+            MARKETING_INFO.remove(deps.storage);
+            LOGO.remove(deps.storage);
+
+            let data = MarketingInfoResponse {
+                project,
+                description,
+                marketing: marketing
+                    .map(|addr| deps.api.addr_validate(&addr))
+                    .transpose()?,
+                logo: None,
+            };
+            MARKETING_INFO.save(deps.storage, &data)?;
+
+            let res = Response::new().add_attribute("action", "update_marketing");
+            Ok(res)
+        }
         ExecuteMsg::UploadLogo(logo) => execute_upload_logo(deps, env, info, logo),
     }
 }
