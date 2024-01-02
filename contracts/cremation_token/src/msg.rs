@@ -6,7 +6,16 @@ use cw20_base::msg::InstantiateMsg as Cw20InstantiateMsg;
 use crate::state::{FractionFormat, TaxInfo};
 
 #[cw_serde]
-pub struct MigrateMsg {}
+pub enum Dex {
+    Terraswap,
+    Terraport,
+}
+
+#[cw_serde]
+pub struct MigrateMsg {
+    pub terraport_router: Addr,
+    pub terraport_pairs: Vec<Addr>,
+}
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -24,6 +33,10 @@ pub enum ExecuteMsg {
     },
     UpdateOwner {
         new_owner: Addr,
+    },
+    AddNewPairs {
+        dex: Dex,
+        pair_addresses: Vec<Addr>,
     },
     UpdateCollectTaxAddress {
         new_collect_tax_addr: Addr,
@@ -130,11 +143,18 @@ pub enum ExecuteMsg {
 #[derive(QueryResponses)]
 pub enum QueryMsg {
     // ======= Extended queries from cremation-coin =======
-    /// Returns the current config of the contract.
+    /// DEPRECATED: Returns the current config of the contract.
     /// - terraswap_router: Terraswap Router contract address
     /// - terraswap_pair: Terraswap Pair contract address
     #[returns(ConfigResponse)]
     Config {},
+    /// Returns the dex contracts.
+    /// - terraswap_router: Terraswap Router contract address
+    /// - terraswap_pair: Terraswap Pair contract address
+    /// - terraport_router: Terraport Router contract address
+    /// - terraport_pair: Terraport Pair contract address
+    #[returns(DexConfigsResponse)]
+    DexConfigs {},
     #[returns(OwnerResponse)]
     Owner {},
     #[returns(CollectTaxAddressResponse)]
@@ -201,6 +221,14 @@ pub enum QueryMsg {
 pub struct ConfigResponse {
     pub terraswap_router: Addr,
     pub terraswap_pair: Addr,
+}
+
+#[cw_serde]
+pub struct DexConfigsResponse {
+    pub terraswap_router: Addr,
+    pub terraswap_pairs: Vec<Addr>,
+    pub terraport_router: Addr,
+    pub terraport_pairs: Vec<Addr>,
 }
 
 #[cw_serde]

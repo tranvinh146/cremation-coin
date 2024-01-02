@@ -1,4 +1,4 @@
-use std::ops::Mul;
+use std::vec;
 
 use cosmwasm_std::{
     from_binary,
@@ -9,24 +9,96 @@ use cw20::{Cw20Coin, TokenInfoResponse};
 use cw20_base::{msg::InstantiateMsg as Cw20InstantiateMsg, ContractError};
 
 use crate::{
-    contract::SWAP_COLLECTED_TAX_THRESHOLD,
-    execute, instantiate,
+    contract::{execute, internal, SWAP_COLLECTED_TAX_THRESHOLD},
+    instantiate, migrate,
     msg::{
-        CollectTaxAddressResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, OwnerResponse,
-        QueryMsg, TaxFreeAddressResponse, TaxInfoResponse,
+        CollectTaxAddressResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, MigrateMsg,
+        OwnerResponse, QueryMsg, TaxFreeAddressResponse, TaxInfoResponse,
     },
     query,
-    state::{FractionFormat, TaxInfo},
+    state::{DexConfigs, FractionFormat, TaxInfo},
 };
 
-fn mock_cw20_instantiate_msg(initial_balances: Vec<Cw20Coin>) -> Cw20InstantiateMsg {
-    Cw20InstantiateMsg {
-        name: "Cremation Coin".to_string(),
-        symbol: "CREMAT".to_string(),
-        decimals: 6,
-        initial_balances,
-        mint: None,
-        marketing: None,
+use self::helpers::get_dex_configs;
+
+mod helpers {
+    use cosmwasm_std::{testing::*, *};
+
+    use super::*;
+
+    pub fn mock_cw20_instantiate_msg(initial_balances: Vec<Cw20Coin>) -> Cw20InstantiateMsg {
+        Cw20InstantiateMsg {
+            name: "Cremation Coin".to_string(),
+            symbol: "CREMAT".to_string(),
+            decimals: 6,
+            initial_balances,
+            mint: None,
+            marketing: None,
+        }
+    }
+
+    pub fn setup_contract(
+        deps: &mut OwnedDeps<MockStorage, MockApi, MockQuerier, Empty>,
+        init_msg: InstantiateMsg,
+    ) -> Result<(), ContractError> {
+        instantiate(
+            deps.as_mut(),
+            mock_env(),
+            mock_info("creator", &[]),
+            init_msg,
+        )
+        .unwrap();
+
+        let dex_configs = get_dex_configs();
+
+        // DEPRECATED: set config
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            mock_info("creator", &[]),
+            ExecuteMsg::SetConfig {
+                terraswap_router: dex_configs.terraswap_router,
+                terraswap_pair: dex_configs.terraswap_pairs[0].clone(),
+            },
+        )
+        .unwrap();
+
+        // Migrate to new version: 1.0.0
+        let migrate_msg = MigrateMsg {
+            terraport_router: dex_configs.terraport_router,
+            terraport_pairs: dex_configs.terraport_pairs,
+        };
+        migrate(deps.as_mut(), mock_env(), migrate_msg).unwrap();
+
+        Ok(())
+    }
+
+    pub fn get_dex_configs() -> DexConfigs {
+        DexConfigs {
+            terraswap_router: Addr::unchecked("terraswap_router"),
+            terraswap_pairs: vec![Addr::unchecked("terraswap_pair")],
+            terraport_router: Addr::unchecked("terraport_router"),
+            terraport_pairs: vec![
+                Addr::unchecked("terraport_pair"),
+                Addr::unchecked("terraport_pair2"),
+            ],
+        }
+    }
+
+    pub fn query_balance(
+        deps: &OwnedDeps<MockStorage, MockApi, MockQuerier, Empty>,
+        address: &Addr,
+    ) -> Uint128 {
+        let balance_query = query(
+            deps.as_ref(),
+            mock_env(),
+            QueryMsg::Balance {
+                address: address.to_string(),
+            },
+        )
+        .unwrap();
+        let balance_res: cw20::BalanceResponse = from_binary(&balance_query).unwrap();
+        balance_res.balance
     }
 }
 
@@ -165,7 +237,7 @@ fn update_owner() {
             sell_tax: None,
             transfer_tax: None,
         },
-        cw20_instantiate_msg: mock_cw20_instantiate_msg(vec![]),
+        cw20_instantiate_msg: helpers::mock_cw20_instantiate_msg(vec![]),
     };
     let _res = instantiate(deps.as_mut(), env, info.clone(), msg).unwrap();
     let msg: ExecuteMsg = ExecuteMsg::SetConfig {
@@ -214,7 +286,7 @@ fn update_tax_info() {
             sell_tax: Some(tax_rate.clone()),
             transfer_tax: None,
         },
-        cw20_instantiate_msg: mock_cw20_instantiate_msg(vec![]),
+        cw20_instantiate_msg: helpers::mock_cw20_instantiate_msg(vec![]),
     };
     let _res = instantiate(deps.as_mut(), env, info, msg).unwrap();
 
@@ -271,7 +343,7 @@ fn update_collect_tax_address() {
             sell_tax: None,
             transfer_tax: None,
         },
-        cw20_instantiate_msg: mock_cw20_instantiate_msg(vec![]),
+        cw20_instantiate_msg: helpers::mock_cw20_instantiate_msg(vec![]),
     };
     let _res = instantiate(deps.as_mut(), env, info, msg).unwrap();
 
@@ -312,7 +384,7 @@ fn set_tax_free_address() {
             sell_tax: None,
             transfer_tax: None,
         },
-        cw20_instantiate_msg: mock_cw20_instantiate_msg(vec![]),
+        cw20_instantiate_msg: helpers::mock_cw20_instantiate_msg(vec![]),
     };
     let _res = instantiate(deps.as_mut(), env, info, msg).unwrap();
 
@@ -374,467 +446,635 @@ fn set_tax_free_address() {
 // - transfer
 // - transfer from
 
-// test collect sell tax when execute send cw20
-// seller -> terraswap router
+// test collect tax when execute send cw20
 #[test]
-fn collect_sell_tax_when_execute_send() {
+fn collect_tax_when_execute_send() {
     let mut deps = mock_dependencies();
-    let env = mock_env();
-    let creator = "creator";
-    let owner = "owner";
-    let terraswap_router = "terraswap_router";
-    let seller = "seller";
-    let seller_balance = Uint128::new(100_000);
-    let tax_rate = FractionFormat {
-        numerator: Uint128::new(8),
+    let owner = Addr::unchecked("owner-tax-free");
+    let buy_tax = FractionFormat {
+        numerator: Uint128::new(7),
         denominator: Uint128::new(100),
     };
-    let msg = InstantiateMsg {
-        owner: Addr::unchecked(owner),
+    let sell_tax = FractionFormat {
+        numerator: Uint128::new(15),
+        denominator: Uint128::new(100),
+    };
+
+    let user_addresses = vec![
+        Addr::unchecked("user1"),
+        Addr::unchecked("user2"),
+        owner.clone(),
+    ];
+    let contract_addresses = vec![Addr::unchecked("contract1"), Addr::unchecked("contract2")];
+    let dex_configs = helpers::get_dex_configs();
+    let pair_addresses = vec![dex_configs.terraswap_pairs, dex_configs.terraport_pairs]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<Addr>>();
+    let router_addresses = vec![dex_configs.terraswap_router, dex_configs.terraport_router];
+    let addresses = vec![
+        user_addresses.clone(),
+        contract_addresses.clone(),
+        pair_addresses.clone(),
+        router_addresses.clone(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<Addr>>();
+
+    let init_amount = Uint128::new(1000);
+    let amount_list = addresses
+        .iter()
+        .map(|addr| Cw20Coin {
+            address: addr.to_string(),
+            amount: init_amount.clone(),
+        })
+        .collect::<Vec<Cw20Coin>>();
+    let init_msg = InstantiateMsg {
+        owner: owner.clone(),
         tax_info: TaxInfo {
-            buy_tax: None,
-            sell_tax: Some(tax_rate.clone()),
+            buy_tax: Some(buy_tax.clone()),
+            sell_tax: Some(sell_tax.clone()),
             transfer_tax: None,
         },
-        cw20_instantiate_msg: mock_cw20_instantiate_msg(vec![Cw20Coin {
-            address: seller.to_string(),
-            amount: seller_balance,
-        }]),
+        cw20_instantiate_msg: helpers::mock_cw20_instantiate_msg(amount_list),
     };
-    instantiate(deps.as_mut(), env, mock_info(creator, &[]), msg).unwrap();
-    // set config
-    execute(
-        deps.as_mut(),
-        mock_env(),
-        mock_info(creator, &[]),
-        ExecuteMsg::SetConfig {
-            terraswap_router: Addr::unchecked("terraswap_router"),
-            terraswap_pair: Addr::unchecked("terraswap_pair"),
-        },
-    )
-    .unwrap();
+    helpers::setup_contract(&mut deps, init_msg).unwrap();
 
-    // send from buyer to terraswap router
-    let info = mock_info(seller, &[]);
-    let send_amount = Uint128::new(100);
-    let expect_tax_amount = send_amount.multiply_ratio(tax_rate.numerator, tax_rate.denominator);
-    let msg = ExecuteMsg::Send {
-        contract: terraswap_router.to_string(),
-        amount: send_amount,
-        msg: Binary::default(),
-    };
-    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
-    let tax_opt = res.attributes.iter().find(|attr| attr.key == "tax_amount");
-    assert!(tax_opt.is_some());
-    assert_eq!(tax_opt.unwrap().value, expect_tax_amount.to_string());
+    let dex_configs = helpers::get_dex_configs();
+    let collect_tax_wallet = owner.clone();
+    for sender in addresses.iter() {
+        for recipient in addresses.iter() {
+            // `send` fn` only works with smart contract
+            if user_addresses.contains(recipient) {
+                continue;
+            }
 
-    // check sender balance
-    let balance_query = query(
-        deps.as_ref(),
-        mock_env(),
-        QueryMsg::Balance {
-            address: seller.to_string(),
-        },
-    )
-    .unwrap();
-    let balance_res: cw20::BalanceResponse = from_binary(&balance_query).unwrap();
-    assert_eq!(balance_res.balance, seller_balance - send_amount);
+            let info = mock_info(&sender.to_string(), &[]);
+            let send_amount = Uint128::new(100);
 
-    // check receiver balance
-    let balance_query = query(
-        deps.as_ref(),
-        mock_env(),
-        QueryMsg::Balance {
-            address: terraswap_router.to_string(),
-        },
-    )
-    .unwrap();
-    let balance_res: cw20::BalanceResponse = from_binary(&balance_query).unwrap();
-    assert_eq!(balance_res.balance, send_amount - expect_tax_amount);
+            let sender_balance_before = helpers::query_balance(&deps, &sender);
+            let recipient_balance_before = helpers::query_balance(&deps, &recipient);
+            let collect_tax_wallet_balance_before =
+                helpers::query_balance(&deps, &collect_tax_wallet);
 
-    // check collect tax address balance
-    let tax_addr_balance_query = query(
-        deps.as_ref(),
-        mock_env(),
-        QueryMsg::Balance {
-            address: owner.to_string(),
-        },
-    );
-    let tax_addr_balance_res: cw20::BalanceResponse =
-        from_binary(&tax_addr_balance_query.unwrap()).unwrap();
-    assert_eq!(tax_addr_balance_res.balance, expect_tax_amount);
+            let msg = ExecuteMsg::Send {
+                contract: recipient.to_string(),
+                amount: send_amount,
+                msg: Binary::default(),
+            };
+            let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
-    // send from non tax-free address
-    let info = mock_info(seller, &[]);
-    let send_amount = Uint128::new(100);
-    let expect_tax_amount = send_amount.multiply_ratio(tax_rate.numerator, tax_rate.denominator);
-    let msg = ExecuteMsg::Send {
-        contract: terraswap_router.to_string(),
-        amount: send_amount,
-        msg: Binary::default(),
-    };
-    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
-    let tax_opt = res.attributes.iter().find(|attr| attr.key == "tax_amount");
-    assert!(tax_opt.is_some());
-    assert_eq!(tax_opt.unwrap().value, expect_tax_amount.to_string());
+            let is_sell = internal::is_sell_operation(&dex_configs, &sender, &recipient);
+            let is_buy = internal::is_buy_operation(&dex_configs, &sender, &recipient);
+            let is_tax_free = sender == &collect_tax_wallet || recipient == &collect_tax_wallet;
+            if is_sell && !is_tax_free {
+                // selling by user
+                assert!(user_addresses.contains(&sender) || contract_addresses.contains(&sender));
+
+                let expected_tax_amount =
+                    send_amount.multiply_ratio(sell_tax.numerator, sell_tax.denominator);
+                let tax_opt = res
+                    .attributes
+                    .iter()
+                    .find(|attr| attr.key == "cw20_tax_amount");
+                assert!(tax_opt.is_some());
+                assert_eq!(tax_opt.unwrap().value, expected_tax_amount.to_string());
+            } else if is_buy && !is_tax_free {
+                // only pair can sell for user
+                assert!(pair_addresses.contains(&sender));
+
+                let expected_tax_amount =
+                    send_amount.multiply_ratio(buy_tax.numerator, buy_tax.denominator);
+                let tax_opt = res
+                    .attributes
+                    .iter()
+                    .find(|attr| attr.key == "cw20_tax_amount");
+                assert!(tax_opt.is_some());
+                assert_eq!(tax_opt.unwrap().value, expected_tax_amount.to_string());
+            } else {
+                let tax_opt = res
+                    .attributes
+                    .iter()
+                    .find(|attr| attr.key == "cw20_tax_amount");
+                assert!(tax_opt.is_none());
+            }
+
+            let sender_balance_after = helpers::query_balance(&deps, &sender);
+            let recipient_balance_after = helpers::query_balance(&deps, &recipient);
+            let collect_tax_wallet_balance_after =
+                helpers::query_balance(&deps, &collect_tax_wallet);
+
+            if sender == &collect_tax_wallet {
+                assert_eq!(
+                    sender_balance_before - sender_balance_after,
+                    recipient_balance_after - recipient_balance_before
+                );
+            } else {
+                assert_eq!(
+                    sender_balance_before - sender_balance_after,
+                    (recipient_balance_after - recipient_balance_before)
+                        + (collect_tax_wallet_balance_after - collect_tax_wallet_balance_before)
+                );
+            }
+        }
+    }
 }
 
-// test collect sell tax when execute send_from cw20
-// seller approves spender
-// spender send cw20 from seller -> terraswap router
+// test collect tax when execute send_from cw20
+// owner approves spender
+// spender send cw20 from owner -> recipient
 #[test]
-fn collect_sell_tax_when_execute_send_from() {
+fn collect_tax_when_execute_send_from() {
     let mut deps = mock_dependencies();
-    let env = mock_env();
-    let creator = "creator";
-    let owner = "owner";
-    let terraswap_router = "terraswap_router";
-    let spender = "spender";
-    let seller = "seller";
-    let seller_balance = Uint128::new(100_000);
-    let sell_amount = Uint128::new(100);
-    let tax_rate = FractionFormat {
-        numerator: Uint128::new(8),
+    let owner = Addr::unchecked("owner-tax-free");
+    let buy_tax = FractionFormat {
+        numerator: Uint128::new(7),
         denominator: Uint128::new(100),
     };
-    let msg = InstantiateMsg {
-        owner: Addr::unchecked(owner),
+    let sell_tax = FractionFormat {
+        numerator: Uint128::new(15),
+        denominator: Uint128::new(100),
+    };
+
+    let user_addresses = vec![
+        Addr::unchecked("user1"),
+        Addr::unchecked("user2"),
+        owner.clone(),
+    ];
+    let contract_addresses = vec![Addr::unchecked("contract1"), Addr::unchecked("contract2")];
+    let pair_addresses = vec![
+        Addr::unchecked("terraswap_pair"),
+        Addr::unchecked("terraport_pair"),
+    ];
+    let router_addresses = vec![
+        Addr::unchecked("terraswap_router"),
+        Addr::unchecked("terraport_router"),
+    ];
+    let addresses = vec![
+        user_addresses.clone(),
+        contract_addresses.clone(),
+        pair_addresses.clone(),
+        router_addresses.clone(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<Addr>>();
+
+    let init_amount = Uint128::new(1000);
+    let amount_list = addresses
+        .iter()
+        .map(|addr| Cw20Coin {
+            address: addr.to_string(),
+            amount: init_amount.clone(),
+        })
+        .collect::<Vec<Cw20Coin>>();
+
+    let init_msg = InstantiateMsg {
+        owner: owner.clone(),
         tax_info: TaxInfo {
-            buy_tax: None,
-            sell_tax: Some(tax_rate.clone()),
+            buy_tax: Some(buy_tax.clone()),
+            sell_tax: Some(sell_tax.clone()),
             transfer_tax: None,
         },
-        cw20_instantiate_msg: mock_cw20_instantiate_msg(vec![Cw20Coin {
-            address: seller.to_string(),
-            amount: seller_balance,
-        }]),
+        cw20_instantiate_msg: helpers::mock_cw20_instantiate_msg(amount_list),
     };
-    instantiate(deps.as_mut(), env, mock_info(creator, &[]), msg).unwrap();
-    // set config
-    execute(
-        deps.as_mut(),
-        mock_env(),
-        mock_info(creator, &[]),
-        ExecuteMsg::SetConfig {
-            terraswap_router: Addr::unchecked("terraswap_router"),
-            terraswap_pair: Addr::unchecked("terraswap_pair"),
-        },
-    )
-    .unwrap();
+    helpers::setup_contract(&mut deps, init_msg).unwrap();
 
-    // approve from seller to spender
-    let info = mock_info(seller, &[]);
-    let msg = ExecuteMsg::IncreaseAllowance {
-        spender: spender.to_string(),
-        amount: sell_amount,
-        expires: None,
-    };
-    let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    let dex_configs = helpers::get_dex_configs();
+    let collect_tax_wallet = owner.clone();
+    for sender in addresses.iter() {
+        for recipient in addresses.iter() {
+            // `sendFrom` fn only works with smart contract
+            // sender can NOT call `increase_allowance` to himself
+            if user_addresses.contains(&recipient) || &sender == &recipient {
+                continue;
+            }
 
-    // send from sender to terraswap router
-    let info = mock_info(spender, &[]);
-    let expect_tax_amount = sell_amount.multiply_ratio(tax_rate.numerator, tax_rate.denominator);
-    let msg = ExecuteMsg::SendFrom {
-        owner: seller.to_string(),
-        contract: terraswap_router.to_string(),
-        amount: sell_amount,
-        msg: Binary::default(),
-    };
-    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
-    let tax_opt = res.attributes.iter().find(|attr| attr.key == "tax_amount");
-    assert!(tax_opt.is_some());
-    assert_eq!(tax_opt.unwrap().value, expect_tax_amount.to_string());
+            let info = mock_info(&sender.to_string(), &[]);
+            let allow_amount = Uint128::new(100);
+            let msg = ExecuteMsg::IncreaseAllowance {
+                spender: recipient.to_string(),
+                amount: allow_amount,
+                expires: None,
+            };
+            execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
-    // check seller balance
-    let balance_query = query(
-        deps.as_ref(),
-        mock_env(),
-        QueryMsg::Balance {
-            address: seller.to_string(),
-        },
-    )
-    .unwrap();
-    let balance_res: cw20::BalanceResponse = from_binary(&balance_query).unwrap();
-    assert_eq!(balance_res.balance, seller_balance - sell_amount);
+            let sender_balance_before = helpers::query_balance(&deps, &sender);
+            let recipient_balance_before = helpers::query_balance(&deps, &recipient);
+            let collect_tax_wallet_balance_before =
+                helpers::query_balance(&deps, &collect_tax_wallet);
 
-    // check receiver balance
-    let balance_query = query(
-        deps.as_ref(),
-        mock_env(),
-        QueryMsg::Balance {
-            address: terraswap_router.to_string(),
-        },
-    )
-    .unwrap();
-    let balance_res: cw20::BalanceResponse = from_binary(&balance_query).unwrap();
-    assert_eq!(balance_res.balance, sell_amount - expect_tax_amount);
+            let info = mock_info(&recipient.to_string(), &[]);
+            let msg = ExecuteMsg::SendFrom {
+                owner: sender.to_string(),
+                contract: recipient.to_string(),
+                amount: allow_amount,
+                msg: Binary::default(),
+            };
+            let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
-    // check collect tax address balance
-    let tax_addr_balance_query = query(
-        deps.as_ref(),
-        mock_env(),
-        QueryMsg::Balance {
-            address: owner.to_string(),
-        },
-    );
-    let tax_addr_balance_res: cw20::BalanceResponse =
-        from_binary(&tax_addr_balance_query.unwrap()).unwrap();
-    assert_eq!(tax_addr_balance_res.balance, expect_tax_amount);
+            let is_sell = internal::is_sell_operation(&dex_configs, &sender, &recipient);
+            let is_buy = internal::is_buy_operation(&dex_configs, &sender, &recipient);
+            let is_tax_free = sender == &collect_tax_wallet || recipient == &collect_tax_wallet;
+            if is_sell && !is_tax_free {
+                // selling by user
+                assert!(user_addresses.contains(&sender) || contract_addresses.contains(&sender));
+
+                let expected_tax_amount =
+                    allow_amount.multiply_ratio(sell_tax.numerator, sell_tax.denominator);
+                let tax_opt = res
+                    .attributes
+                    .iter()
+                    .find(|attr| attr.key == "cw20_tax_amount");
+                assert!(tax_opt.is_some());
+                assert_eq!(tax_opt.unwrap().value, expected_tax_amount.to_string());
+            } else if is_buy && !is_tax_free {
+                // only pair can sell for user/contract
+                assert!(pair_addresses.contains(&sender));
+
+                let expected_tax_amount =
+                    allow_amount.multiply_ratio(buy_tax.numerator, buy_tax.denominator);
+
+                let tax_opt = res
+                    .attributes
+                    .iter()
+                    .find(|attr| attr.key == "cw20_tax_amount");
+                assert!(tax_opt.is_some());
+                assert_eq!(tax_opt.unwrap().value, expected_tax_amount.to_string());
+            } else {
+                let tax_opt = res
+                    .attributes
+                    .iter()
+                    .find(|attr| attr.key == "cw20_tax_amount");
+                assert!(tax_opt.is_none());
+            }
+
+            let sender_balance_after = helpers::query_balance(&deps, &sender);
+            let recipient_balance_after = helpers::query_balance(&deps, &recipient);
+            let collect_tax_wallet_balance_after =
+                helpers::query_balance(&deps, &collect_tax_wallet);
+
+            if sender == &collect_tax_wallet {
+                assert_eq!(
+                    sender_balance_before - sender_balance_after,
+                    recipient_balance_after - recipient_balance_before
+                );
+            } else {
+                assert_eq!(
+                    sender_balance_before - sender_balance_after,
+                    (recipient_balance_after - recipient_balance_before)
+                        + (collect_tax_wallet_balance_after - collect_tax_wallet_balance_before)
+                );
+            }
+        }
+    }
 }
 
-// test collect buy tax when execute transfer cw20
-// terraswap pair -> buyer
+// test collect tax when execute transfer cw20
 #[test]
-fn collect_transfer_tax_when_execute_transfer() {
+fn collect_tax_when_execute_transfer() {
     let mut deps = mock_dependencies();
-    let env = mock_env();
-    let creator = "creator";
-    let owner = "owner";
-    let sender = "sender";
-    let recipient = "recipient";
-    let sender_balance = Uint128::new(100_000);
-    let tax_rate = FractionFormat {
-        numerator: Uint128::new(8),
+    let owner = Addr::unchecked("owner-tax-free");
+    let transfer_tax = FractionFormat {
+        numerator: Uint128::new(7),
         denominator: Uint128::new(100),
     };
-    let msg = InstantiateMsg {
-        owner: Addr::unchecked(owner),
+
+    let normal_addresses = vec![
+        Addr::unchecked("user"),
+        Addr::unchecked("contract"),
+        owner.clone(),
+    ];
+    let pair_addresses = vec![
+        Addr::unchecked("terraswap_pair"),
+        Addr::unchecked("terraport_pair"),
+    ];
+    let router_addresses = vec![
+        Addr::unchecked("terraswap_router"),
+        Addr::unchecked("terraport_router"),
+    ];
+    let addresses = vec![
+        normal_addresses.clone(),
+        pair_addresses.clone(),
+        router_addresses.clone(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<Addr>>();
+
+    let init_amount = Uint128::new(1000);
+    let amount_list = addresses
+        .iter()
+        .map(|addr| Cw20Coin {
+            address: addr.to_string(),
+            amount: init_amount.clone(),
+        })
+        .collect::<Vec<Cw20Coin>>();
+
+    let init_msg = InstantiateMsg {
+        owner: owner.clone(),
         tax_info: TaxInfo {
             buy_tax: None,
             sell_tax: None,
-            transfer_tax: Some(tax_rate.clone()),
+            transfer_tax: Some(transfer_tax.clone()),
         },
-        cw20_instantiate_msg: mock_cw20_instantiate_msg(vec![Cw20Coin {
-            address: sender.to_string(),
-            amount: sender_balance,
-        }]),
+        cw20_instantiate_msg: helpers::mock_cw20_instantiate_msg(amount_list),
     };
-    instantiate(deps.as_mut(), env, mock_info(creator, &[]), msg).unwrap();
-    // set config
-    execute(
-        deps.as_mut(),
-        mock_env(),
-        mock_info(creator, &[]),
-        ExecuteMsg::SetConfig {
-            terraswap_router: Addr::unchecked("terraswap_router"),
-            terraswap_pair: Addr::unchecked("terraswap_pair"),
-        },
-    )
-    .unwrap();
+    helpers::setup_contract(&mut deps, init_msg).unwrap();
 
-    // transfer from terraswap pair to buyer
-    let info = mock_info(sender, &[]);
-    let transfer_amount = Uint128::new(100);
-    let expect_tax_amount =
-        transfer_amount.multiply_ratio(tax_rate.numerator, tax_rate.denominator);
-    let msg = ExecuteMsg::Transfer {
-        recipient: recipient.to_string(),
-        amount: transfer_amount,
-    };
-    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
-    let tax_opt = res.attributes.iter().find(|attr| attr.key == "tax_amount");
-    assert!(tax_opt.is_some());
-    assert_eq!(tax_opt.unwrap().value, expect_tax_amount.to_string());
+    let collect_tax_wallet = owner.clone();
+    for sender in addresses.iter() {
+        for recipient in addresses.iter() {
+            let sender_balance_before = helpers::query_balance(&deps, &sender);
+            let recipient_balance_before = helpers::query_balance(&deps, &recipient);
+            let collect_tax_wallet_balance_before =
+                helpers::query_balance(&deps, &collect_tax_wallet);
 
-    // check sender balance
-    let balance_query = query(
-        deps.as_ref(),
-        mock_env(),
-        QueryMsg::Balance {
-            address: sender.to_string(),
-        },
-    )
-    .unwrap();
-    let balance_res: cw20::BalanceResponse = from_binary(&balance_query).unwrap();
-    assert_eq!(balance_res.balance, sender_balance - transfer_amount);
+            let info = mock_info(&sender.to_string(), &[]);
+            let transfer_amount = Uint128::new(100);
+            let msg = ExecuteMsg::Transfer {
+                recipient: recipient.to_string(),
+                amount: transfer_amount,
+            };
+            let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
-    // check receiver balance
-    let balance_query = query(
-        deps.as_ref(),
-        mock_env(),
-        QueryMsg::Balance {
-            address: recipient.to_string(),
-        },
-    )
-    .unwrap();
-    let balance_res: cw20::BalanceResponse = from_binary(&balance_query).unwrap();
-    assert_eq!(balance_res.balance, transfer_amount - expect_tax_amount);
+            if sender == &collect_tax_wallet || recipient == &collect_tax_wallet {
+                let tax_opt = res
+                    .attributes
+                    .iter()
+                    .find(|attr| attr.key == "cw20_tax_amount");
+                assert!(tax_opt.is_none());
+            } else {
+                let expected_tax_amount = transfer_amount
+                    .multiply_ratio(transfer_tax.numerator, transfer_tax.denominator);
+                let tax_opt = res
+                    .attributes
+                    .iter()
+                    .find(|attr| attr.key == "cw20_tax_amount");
+                assert!(tax_opt.is_some());
+                assert_eq!(tax_opt.unwrap().value, expected_tax_amount.to_string());
+            }
 
-    // check collect tax address balance
-    let tax_addr_balance_query = query(
-        deps.as_ref(),
-        mock_env(),
-        QueryMsg::Balance {
-            address: owner.to_string(),
-        },
-    );
-    let tax_addr_balance_res: cw20::BalanceResponse =
-        from_binary(&tax_addr_balance_query.unwrap()).unwrap();
-    assert_eq!(tax_addr_balance_res.balance, expect_tax_amount);
+            let sender_balance_after = helpers::query_balance(&deps, &sender);
+            let recipient_balance_after = helpers::query_balance(&deps, &recipient);
+            let collect_tax_wallet_balance_after =
+                helpers::query_balance(&deps, &collect_tax_wallet);
+
+            if sender == &collect_tax_wallet || recipient == &collect_tax_wallet {
+                assert_eq!(
+                    sender_balance_before - sender_balance_after,
+                    recipient_balance_after - recipient_balance_before
+                );
+            } else if sender == recipient {
+                assert_eq!(
+                    sender_balance_before - sender_balance_after,
+                    recipient_balance_before - recipient_balance_after
+                );
+                assert_eq!(
+                    sender_balance_before - sender_balance_after,
+                    collect_tax_wallet_balance_after - collect_tax_wallet_balance_before
+                );
+            } else {
+                assert_eq!(
+                    sender_balance_before - sender_balance_after,
+                    (recipient_balance_after - recipient_balance_before)
+                        + (collect_tax_wallet_balance_after - collect_tax_wallet_balance_before)
+                );
+            }
+        }
+    }
 }
 
-// test collect buy tax when execute transfer_from cw20
-// seller approves spender
-// spender transfer cw20 from seller -> terraswap router
+// test collect tax when execute transfer_from cw20
+// owner approves spender
+// spender transfer cw20 from owner -> recipient
 #[test]
 fn collect_transfer_tax_when_execute_transfer_from() {
     let mut deps = mock_dependencies();
-    let env = mock_env();
-    let creator = "creator";
-    let owner = "owner";
-    let spender = "spender";
-    let sender = "sender";
-    let recipient = "recipient";
-    let seller_balance = Uint128::new(100_000);
-    let transfer_amount = Uint128::new(100);
-    let tax_rate = FractionFormat {
-        numerator: Uint128::new(8),
+    let owner = Addr::unchecked("owner-tax-free");
+    let transfer_tax = FractionFormat {
+        numerator: Uint128::new(7),
         denominator: Uint128::new(100),
     };
-    let msg = InstantiateMsg {
-        owner: Addr::unchecked(owner),
+
+    let normal_addresses = vec![
+        Addr::unchecked("user"),
+        Addr::unchecked("contract"),
+        owner.clone(),
+    ];
+    let pair_addresses = vec![
+        Addr::unchecked("terraswap_pair"),
+        Addr::unchecked("terraport_pair"),
+    ];
+    let router_addresses = vec![
+        Addr::unchecked("terraswap_router"),
+        Addr::unchecked("terraport_router"),
+    ];
+    let addresses = vec![
+        normal_addresses.clone(),
+        pair_addresses.clone(),
+        router_addresses.clone(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<Addr>>();
+
+    let init_amount = Uint128::new(1000);
+    let amount_list = addresses
+        .iter()
+        .map(|addr| Cw20Coin {
+            address: addr.to_string(),
+            amount: init_amount.clone(),
+        })
+        .collect::<Vec<Cw20Coin>>();
+
+    let init_msg = InstantiateMsg {
+        owner: owner.clone(),
         tax_info: TaxInfo {
             buy_tax: None,
             sell_tax: None,
-            transfer_tax: Some(tax_rate.clone()),
+            transfer_tax: Some(transfer_tax.clone()),
         },
-        cw20_instantiate_msg: mock_cw20_instantiate_msg(vec![Cw20Coin {
-            address: sender.to_string(),
-            amount: seller_balance,
-        }]),
+        cw20_instantiate_msg: helpers::mock_cw20_instantiate_msg(amount_list),
     };
-    instantiate(deps.as_mut(), env, mock_info("creator", &[]), msg).unwrap();
-    // set config
-    execute(
-        deps.as_mut(),
-        mock_env(),
-        mock_info(creator, &[]),
-        ExecuteMsg::SetConfig {
-            terraswap_router: Addr::unchecked("terraswap_router"),
-            terraswap_pair: Addr::unchecked("terraswap_pair"),
-        },
-    )
-    .unwrap();
+    helpers::setup_contract(&mut deps, init_msg).unwrap();
 
-    // approve from seller to spender
-    let info = mock_info(sender, &[]);
-    let msg = ExecuteMsg::IncreaseAllowance {
-        spender: spender.to_string(),
-        amount: transfer_amount,
-        expires: None,
-    };
-    let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+    let collect_tax_wallet = owner.clone();
+    for sender in addresses.iter() {
+        for recipient in addresses.iter() {
+            // sender can NOT call `increase_allowance` to himself
+            if &sender == &recipient {
+                continue;
+            }
 
-    // transfer from spender to terraswap pair
-    let info = mock_info(spender, &[]);
-    let expect_tax_amount =
-        transfer_amount.multiply_ratio(tax_rate.numerator, tax_rate.denominator);
-    let msg = ExecuteMsg::TransferFrom {
-        owner: sender.to_string(),
-        recipient: recipient.to_string(),
-        amount: transfer_amount,
-    };
-    let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
-    let tax_opt = res.attributes.iter().find(|attr| attr.key == "tax_amount");
-    assert!(tax_opt.is_some());
-    assert_eq!(tax_opt.unwrap().value, expect_tax_amount.to_string());
+            let info = mock_info(&sender.to_string(), &[]);
+            let allow_amount = Uint128::new(100);
+            let msg = ExecuteMsg::IncreaseAllowance {
+                spender: recipient.to_string(),
+                amount: allow_amount,
+                expires: None,
+            };
+            execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
-    // check seller balance
-    let balance_query = query(
-        deps.as_ref(),
-        mock_env(),
-        QueryMsg::Balance {
-            address: sender.to_string(),
-        },
-    )
-    .unwrap();
-    let balance_res: cw20::BalanceResponse = from_binary(&balance_query).unwrap();
-    assert_eq!(balance_res.balance, seller_balance - transfer_amount);
+            let sender_balance_before = helpers::query_balance(&deps, &sender);
+            let recipient_balance_before = helpers::query_balance(&deps, &recipient);
+            let collect_tax_wallet_balance_before =
+                helpers::query_balance(&deps, &collect_tax_wallet);
 
-    // check receiver balance
-    let balance_query = query(
-        deps.as_ref(),
-        mock_env(),
-        QueryMsg::Balance {
-            address: recipient.to_string(),
-        },
-    )
-    .unwrap();
-    let balance_res: cw20::BalanceResponse = from_binary(&balance_query).unwrap();
-    assert_eq!(balance_res.balance, transfer_amount - expect_tax_amount);
+            let info = mock_info(&sender.to_string(), &[]);
+            let transfer_amount = Uint128::new(100);
+            let msg = ExecuteMsg::Transfer {
+                recipient: recipient.to_string(),
+                amount: transfer_amount,
+            };
+            let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
-    // check collect tax address balance
-    let tax_addr_balance_query = query(
-        deps.as_ref(),
-        mock_env(),
-        QueryMsg::Balance {
-            address: owner.to_string(),
-        },
-    );
-    let tax_addr_balance_res: cw20::BalanceResponse =
-        from_binary(&tax_addr_balance_query.unwrap()).unwrap();
-    assert_eq!(tax_addr_balance_res.balance, expect_tax_amount);
+            if sender == &collect_tax_wallet || recipient == &collect_tax_wallet {
+                let tax_opt = res
+                    .attributes
+                    .iter()
+                    .find(|attr| attr.key == "cw20_tax_amount");
+                assert!(tax_opt.is_none());
+            } else {
+                let expected_tax_amount = transfer_amount
+                    .multiply_ratio(transfer_tax.numerator, transfer_tax.denominator);
+                let tax_opt = res
+                    .attributes
+                    .iter()
+                    .find(|attr| attr.key == "cw20_tax_amount");
+                assert!(tax_opt.is_some());
+                assert_eq!(tax_opt.unwrap().value, expected_tax_amount.to_string());
+            }
+
+            let sender_balance_after = helpers::query_balance(&deps, &sender);
+            let recipient_balance_after = helpers::query_balance(&deps, &recipient);
+            let collect_tax_wallet_balance_after =
+                helpers::query_balance(&deps, &collect_tax_wallet);
+
+            if sender == &collect_tax_wallet || recipient == &collect_tax_wallet {
+                assert_eq!(
+                    sender_balance_before - sender_balance_after,
+                    recipient_balance_after - recipient_balance_before
+                );
+            } else {
+                assert_eq!(
+                    sender_balance_before - sender_balance_after,
+                    (recipient_balance_after - recipient_balance_before)
+                        + (collect_tax_wallet_balance_after - collect_tax_wallet_balance_before)
+                );
+            }
+        }
+    }
 }
 
 #[test]
 fn trigger_auto_swap_collected_tax() {
     let mut deps = mock_dependencies();
-    let env = mock_env();
-    let creator = "creator";
-    let owner = "owner";
-    let terraswap_router = "terraswap_router";
-    let seller = "seller";
-    let seller_balance = SWAP_COLLECTED_TAX_THRESHOLD.mul(Uint128::new(100));
-    let tax_rate = FractionFormat {
-        numerator: Uint128::new(8),
+    let owner = Addr::unchecked("owner-tax-free");
+    let seller = Addr::unchecked("seller");
+    let sell_tax = FractionFormat {
+        numerator: Uint128::new(40),
         denominator: Uint128::new(100),
     };
-    let msg = InstantiateMsg {
-        owner: Addr::unchecked(owner),
+
+    let init_msg = InstantiateMsg {
+        owner: owner.clone(),
         tax_info: TaxInfo {
             buy_tax: None,
-            sell_tax: Some(tax_rate.clone()),
+            sell_tax: Some(sell_tax.clone()),
             transfer_tax: None,
         },
-        cw20_instantiate_msg: mock_cw20_instantiate_msg(vec![Cw20Coin {
+        cw20_instantiate_msg: helpers::mock_cw20_instantiate_msg(vec![Cw20Coin {
             address: seller.to_string(),
-            amount: seller_balance,
+            amount: Uint128::MAX,
         }]),
     };
-    instantiate(deps.as_mut(), env, mock_info(creator, &[]), msg).unwrap();
-    // set config
-    execute(
-        deps.as_mut(),
-        mock_env(),
-        mock_info(creator, &[]),
-        ExecuteMsg::SetConfig {
-            terraswap_router: Addr::unchecked("terraswap_router"),
-            terraswap_pair: Addr::unchecked("terraswap_pair"),
-        },
-    )
-    .unwrap();
+    helpers::setup_contract(&mut deps, init_msg).unwrap();
 
     // send from buyer to terraswap router
-    let mut env = mock_env();
-    env.contract.address = Addr::unchecked("cremation_token");
-    let info = mock_info(seller, &[]);
-    let msg = ExecuteMsg::Send {
-        contract: terraswap_router.to_string(),
-        amount: seller_balance,
-        msg: Binary::default(),
-    };
-    let res = execute(deps.as_mut(), env, info, msg).unwrap();
-    let auto_swap_msg = res.messages.iter().find(|sub_msg| match sub_msg.msg {
-        CosmosMsg::Wasm(WasmMsg::Execute {
-            ref contract_addr, ..
-        }) => contract_addr == "cremation_token",
-        _ => false,
-    });
-    assert!(auto_swap_msg.is_some());
+    let dex_configs = helpers::get_dex_configs();
+    let pair_addresses = vec![dex_configs.terraswap_pairs, dex_configs.terraport_pairs]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<Addr>>();
+    let router_addresses = vec![dex_configs.terraswap_router, dex_configs.terraport_router];
+    let dex_addresses = vec![router_addresses, pair_addresses]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<Addr>>();
 
-    let collected_tax_opt = res
-        .attributes
-        .iter()
-        .find(|attr| attr.key == "action" && attr.value == "collected_tax_swap");
-    assert!(collected_tax_opt.is_some());
+    for addr in dex_addresses.iter() {
+        let sell_amount = SWAP_COLLECTED_TAX_THRESHOLD * sell_tax.denominator / sell_tax.numerator
+            + Uint128::one();
+        let msg = ExecuteMsg::Send {
+            contract: addr.to_string(),
+            amount: sell_amount,
+            msg: Binary::default(),
+        };
+        let mut env = mock_env();
+        env.contract.address = Addr::unchecked("cremation_token");
+        let info = mock_info(&seller.to_string(), &[]);
+        let res = execute(deps.as_mut(), env, info, msg).unwrap();
+        let auto_swap_msg = res.messages.iter().find(|sub_msg| match sub_msg.msg {
+            CosmosMsg::Wasm(WasmMsg::Execute {
+                ref contract_addr, ..
+            }) => contract_addr == "cremation_token",
+            _ => false,
+        });
+        assert!(auto_swap_msg.is_some());
+
+        let collected_tax_opt = res
+            .attributes
+            .iter()
+            .find(|attr| attr.key == "action" && attr.value == "collected_tax_swap");
+        assert!(collected_tax_opt.is_some());
+    }
+}
+
+// test add new pairs after migrate
+#[test]
+fn add_new_pairs_after_migrate() {
+    let mut deps = mock_dependencies();
+    let owner = Addr::unchecked("owner-tax-free");
+
+    let init_msg = InstantiateMsg {
+        owner: owner.clone(),
+        tax_info: TaxInfo {
+            buy_tax: None,
+            sell_tax: None,
+            transfer_tax: None,
+        },
+        cw20_instantiate_msg: helpers::mock_cw20_instantiate_msg(vec![]),
+    };
+    helpers::setup_contract(&mut deps, init_msg).unwrap();
+
+    let new_pair_addresses = vec![
+        Addr::unchecked("terraswap_pair_new1"),
+        Addr::unchecked("terraswap_pair_new2"),
+    ];
+    let msg = ExecuteMsg::AddNewPairs {
+        dex: crate::msg::Dex::Terraswap,
+        pair_addresses: new_pair_addresses.clone(),
+    };
+    let env = mock_env();
+    let info = mock_info(&owner.to_string(), &[]);
+    execute(deps.as_mut(), env, info, msg).unwrap();
+
+    let config_query = query(deps.as_ref(), mock_env(), QueryMsg::DexConfigs {}).unwrap();
+    let config_res: crate::msg::DexConfigsResponse = from_binary(&config_query).unwrap();
+
+    let old_dex_config = get_dex_configs();
+    let old_terraswap_pairs = old_dex_config.terraswap_pairs;
+    let old_terraport_pairs = old_dex_config.terraport_pairs;
+    for i in 0..old_terraport_pairs.len() {
+        assert_eq!(config_res.terraport_pairs[i], old_terraport_pairs[i]);
+    }
+    for i in 0..old_terraswap_pairs.len() {
+        assert_eq!(config_res.terraswap_pairs[i], old_terraswap_pairs[i]);
+    }
+
+    for pair in new_pair_addresses {
+        assert!(config_res.terraswap_pairs.contains(&pair));
+    }
 }

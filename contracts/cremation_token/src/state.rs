@@ -10,6 +10,15 @@ pub struct Config {
 pub const CONFIG: Item<Config> = Item::new("config");
 
 #[cw_serde]
+pub struct DexConfigs {
+    pub terraswap_router: Addr,
+    pub terraswap_pairs: Vec<Addr>,
+    pub terraport_router: Addr,
+    pub terraport_pairs: Vec<Addr>,
+}
+pub const DEX_CONFIGS: Item<DexConfigs> = Item::new("dex_configs");
+
+#[cw_serde]
 pub struct FractionFormat {
     pub numerator: Uint128,
     pub denominator: Uint128,

@@ -58,6 +58,10 @@ pub fn execute(
             terraswap_pair,
         } => execute::set_config(deps, env, info, terraswap_router, terraswap_pair),
         ExecuteMsg::UpdateOwner { new_owner } => execute::update_owner(deps, env, info, new_owner),
+        ExecuteMsg::AddNewPairs {
+            dex,
+            pair_addresses,
+        } => execute::add_new_pairs(deps, env, info, dex, pair_addresses),
         ExecuteMsg::UpdateCollectTaxAddress {
             new_collect_tax_addr,
         } => execute::update_collecting_tax_address(deps, env, info, new_collect_tax_addr),
@@ -150,7 +154,7 @@ pub mod execute {
     use cw20::AllowanceResponse;
     use cw20_base::state::{ALLOWANCES, ALLOWANCES_SPENDER};
 
-    use super::*;
+    use super::{internal::*, *};
 
     pub fn set_config(
         deps: DepsMut,
@@ -173,6 +177,32 @@ pub mod execute {
             terraswap_pair,
         };
         CONFIG.save(deps.storage, &config)?;
+        Ok(Response::new())
+    }
+
+    pub fn add_new_pairs(
+        deps: DepsMut,
+        _env: Env,
+        info: MessageInfo,
+        dex: Dex,
+        pairs_addresses: Vec<Addr>,
+    ) -> Result<Response, ContractError> {
+        let owner = OWNER.load(deps.storage).unwrap();
+        if info.sender != owner {
+            return Err(ContractError::Unauthorized {});
+        }
+
+        let mut dex_configs = DEX_CONFIGS.load(deps.storage).unwrap();
+        match dex {
+            Dex::Terraswap => {
+                dex_configs.terraswap_pairs.extend(pairs_addresses);
+            }
+            Dex::Terraport => {
+                dex_configs.terraport_pairs.extend(pairs_addresses);
+            }
+        }
+        DEX_CONFIGS.save(deps.storage, &dex_configs)?;
+
         Ok(Response::new())
     }
 
@@ -253,7 +283,6 @@ pub mod execute {
         amount: Uint128,
         msg: Binary,
     ) -> Result<Response, ContractError> {
-        let config = CONFIG.load(deps.storage)?;
         let sender_addr = info.sender;
         let rcpt_addr = deps.api.addr_validate(&contract)?;
         let is_transfer = false;
@@ -268,7 +297,7 @@ pub mod execute {
             attr("amount", amount),
         ];
         if let Some(tax) = tax_amount {
-            attrs.push(attr("tax_amount", tax));
+            attrs.push(attr("cw20_tax_amount", tax));
         }
 
         // create a send message
@@ -279,12 +308,10 @@ pub mod execute {
         }
         .into_cosmos_msg(contract)?];
 
-        if is_sell_operation(&config, sender_addr, rcpt_addr) {
-            let msg_opt = swap_collected_tax_to_native(deps, env, config.terraswap_router)?;
-            if let Some(swap_msg) = msg_opt {
-                attrs.push(attr("action", "collected_tax_swap"));
-                messages.push(swap_msg);
-            }
+        let msg_opt = swap_collected_tax_to_native(deps, env, &sender_addr, &rcpt_addr)?;
+        if let Some(swap_msg) = msg_opt {
+            attrs.push(attr("action", "collected_tax_swap"));
+            messages.push(swap_msg);
         }
 
         let res = Response::new().add_messages(messages).add_attributes(attrs);
@@ -300,7 +327,6 @@ pub mod execute {
         amount: Uint128,
         msg: Binary,
     ) -> Result<Response, ContractError> {
-        let config = CONFIG.load(deps.storage)?;
         let owner_addr = deps.api.addr_validate(&owner)?;
         let rcpt_addr = deps.api.addr_validate(&contract)?;
         let is_transfer = false;
@@ -318,7 +344,7 @@ pub mod execute {
             attr("amount", amount),
         ];
         if let Some(tax) = tax_amount {
-            attrs.push(attr("tax_amount", tax));
+            attrs.push(attr("cw20_tax_amount", tax));
         }
 
         // create a send message
@@ -329,12 +355,10 @@ pub mod execute {
         }
         .into_cosmos_msg(contract)?];
 
-        if is_sell_operation(&config, owner_addr, rcpt_addr) {
-            let msg_opt = swap_collected_tax_to_native(deps, env, config.terraswap_router)?;
-            if let Some(swap_msg) = msg_opt {
-                attrs.push(attr("action", "collected_tax_swap"));
-                messages.push(swap_msg)
-            }
+        let msg_opt = swap_collected_tax_to_native(deps, env, &owner_addr, &rcpt_addr)?;
+        if let Some(swap_msg) = msg_opt {
+            attrs.push(attr("action", "collected_tax_swap"));
+            messages.push(swap_msg)
         }
 
         let res = Response::new().add_messages(messages).add_attributes(attrs);
@@ -362,7 +386,7 @@ pub mod execute {
             attr("amount", amount),
         ];
         if let Some(tax) = tax_amount {
-            attrs.push(attr("tax_amount", tax));
+            attrs.push(attr("cw20_tax_amount", tax));
         }
 
         Ok(Response::new().add_attributes(attrs))
@@ -393,7 +417,7 @@ pub mod execute {
             attr("amount", amount),
         ];
         if let Some(tax) = tax_amount {
-            attrs.push(attr("tax_amount", tax));
+            attrs.push(attr("cw20_tax_amount", tax));
         }
 
         Ok(Response::new().add_attributes(attrs))
@@ -446,7 +470,7 @@ pub mod execute {
         amount: Uint128,
         is_transfer: bool,
     ) -> Option<Uint128> {
-        let config = CONFIG.load(store).unwrap();
+        let dex_configs = DEX_CONFIGS.load(store).unwrap();
         let tax_info = TAX_INFO.load(store).unwrap();
 
         if TAX_FREE_ADDRESSES.has(store, from.clone()) || TAX_FREE_ADDRESSES.has(store, to.clone())
@@ -454,8 +478,9 @@ pub mod execute {
             return None;
         }
 
-        let is_buy = is_buy_operation(&config, from.to_owned(), to.to_owned());
-        let is_sell = is_sell_operation(&config, from.to_owned(), to.to_owned());
+        let is_buy = tax_info.buy_tax.is_some() && is_buy_operation(&dex_configs, &from, &to);
+        let is_sell = tax_info.sell_tax.is_some() && is_sell_operation(&dex_configs, &from, &to);
+        let is_transfer = tax_info.transfer_tax.is_some() && is_transfer;
 
         match (is_transfer, is_buy, is_sell) {
             (true, false, false) => match tax_info.transfer_tax {
@@ -504,8 +529,25 @@ pub mod execute {
     fn swap_collected_tax_to_native(
         deps: DepsMut,
         env: Env,
-        terraswap_router: Addr,
+        from: &Addr,
+        to: &Addr,
     ) -> Result<Option<CosmosMsg>, ContractError> {
+        let dex_configs = DEX_CONFIGS.load(deps.storage)?;
+
+        // Only collect tax with sell operation
+        if !is_sell_operation(&dex_configs, from, to) {
+            return Ok(None);
+        }
+
+        let router;
+        if dex_configs.terraswap_pairs.contains(to) || to == &dex_configs.terraport_router {
+            router = dex_configs.terraswap_router
+        } else if dex_configs.terraport_pairs.contains(to) || to == &dex_configs.terraswap_router {
+            router = dex_configs.terraport_router
+        } else {
+            return Err(StdError::generic_err("Router not found").into());
+        };
+
         // check balance of collected tax address
         let collect_tax_addr = COLLECT_TAX_ADDRESS.load(deps.storage).unwrap();
         let collected_tax_amount = BALANCES
@@ -536,7 +578,7 @@ pub mod execute {
         // swap collected tax to native token
         let cw20_send_msg = ExecuteMsg::SendFrom {
             owner: collect_tax_addr.to_string(),
-            contract: terraswap_router.to_string(),
+            contract: router.to_string(),
             amount: collected_tax_amount,
             msg: to_binary(&RouterExecuteMsg::ExecuteSwapOperations {
                 operations: vec![SwapOperation::TerraSwap {
@@ -560,27 +602,47 @@ pub mod execute {
         };
         Ok(Some(msg.into()))
     }
+}
 
-    // receive token from terraswap pair
-    fn is_buy_operation(config: &Config, from: Addr, to: Addr) -> bool {
-        from != to
-            && !((from == config.terraswap_pair && to == config.terraswap_router)
-                || (from == config.terraswap_router && to == config.terraswap_pair))
-            && from == config.terraswap_pair
+pub(crate) mod internal {
+    use super::*;
+
+    // receive token from terraswap pair, or terraport pair
+    pub fn is_buy_operation(dex_configs: &DexConfigs, from: &Addr, to: &Addr) -> bool {
+        let buy_from_terraswap = from != to
+            && dex_configs.terraswap_pairs.contains(from)
+            && to != dex_configs.terraswap_router;
+
+        let buy_from_terraport = from != to
+            && dex_configs.terraport_pairs.contains(from)
+            && to != dex_configs.terraport_router;
+
+        buy_from_terraswap || buy_from_terraport
     }
 
     // send token to terraswap router, or terraswap pair
-    fn is_sell_operation(config: &Config, from: Addr, to: Addr) -> bool {
-        from != to
-            && !((from == config.terraswap_pair && to == config.terraswap_router)
-                || (from == config.terraswap_router && to == config.terraswap_pair))
-            && (to == config.terraswap_router || to == config.terraswap_pair)
+    // Or send token to terraport router, or terraport pair
+    pub fn is_sell_operation(dex_configs: &DexConfigs, from: &Addr, to: &Addr) -> bool {
+        let sell_to_terraswap = from != to
+            && (dex_configs.terraswap_pairs.contains(to) || to == dex_configs.terraport_router);
+
+        let sell_to_terraport = from != to
+            && (dex_configs.terraport_pairs.contains(to) || to == dex_configs.terraswap_router);
+
+        let not_from_dexs = !(from == dex_configs.terraswap_router
+            || dex_configs.terraport_pairs.contains(from)
+            || from == dex_configs.terraport_router
+            || dex_configs.terraswap_pairs.contains(from));
+
+        (sell_to_terraswap || sell_to_terraport) && not_from_dexs
     }
 
-    fn validate_tax_format(tax: &Option<FractionFormat>) -> Result<(), ContractError> {
+    pub fn validate_tax_format(tax: &Option<FractionFormat>) -> Result<(), ContractError> {
         match tax {
             Some(tax) => {
-                if tax.numerator > tax.denominator {
+                if tax.numerator > tax.denominator
+                    && tax.denominator * tax.denominator != Uint128::zero()
+                {
                     return Err(StdError::generic_err("Invalid fraction format").into());
                 }
             }
@@ -621,7 +683,8 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::DownloadLogo {} => to_binary(&query_download_logo(deps)?),
 
         // ======= Extend queries for cremation-coin =======
-        QueryMsg::Config {} => to_binary(&query::config(deps)?),
+        QueryMsg::Config {} => to_binary(&query::config(deps)?), // DEPRECATED
+        QueryMsg::DexConfigs {} => to_binary(&query::dex_configs(deps)?),
         QueryMsg::Owner {} => to_binary(&query::owner(deps)?),
         QueryMsg::CollectTaxAddress {} => to_binary(&query::collect_tax_address(deps)?),
         QueryMsg::TaxInfo {} => to_binary(&query::tax_info(deps)?),
@@ -634,11 +697,22 @@ pub mod query {
 
     use super::*;
 
+    /// DEPRECATED: Returns only terraswap config.
     pub fn config(deps: Deps) -> StdResult<ConfigResponse> {
         let config = CONFIG.load(deps.storage)?;
         Ok(ConfigResponse {
             terraswap_router: config.terraswap_router,
             terraswap_pair: config.terraswap_pair,
+        })
+    }
+
+    pub fn dex_configs(deps: Deps) -> StdResult<DexConfigsResponse> {
+        let dex_configs = DEX_CONFIGS.load(deps.storage)?;
+        Ok(DexConfigsResponse {
+            terraswap_router: dex_configs.terraswap_router,
+            terraswap_pairs: dex_configs.terraswap_pairs,
+            terraport_router: dex_configs.terraport_router,
+            terraport_pairs: dex_configs.terraport_pairs,
         })
     }
 
