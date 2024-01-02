@@ -3,20 +3,6 @@
   "title": "QueryMsg",
   "oneOf": [
     {
-      "description": "DEPRECATED: Returns the current config of the contract. - terraswap_router: Terraswap Router contract address - terraswap_pair: Terraswap Pair contract address",
-      "type": "object",
-      "required": [
-        "config"
-      ],
-      "properties": {
-        "config": {
-          "type": "object",
-          "additionalProperties": false
-        }
-      },
-      "additionalProperties": false
-    },
-    {
       "description": "Returns the dex contracts. - terraswap_router: Terraswap Router contract address - terraswap_pair: Terraswap Pair contract address - terraport_router: Terraport Router contract address - terraport_pair: Terraport Pair contract address",
       "type": "object",
       "required": [

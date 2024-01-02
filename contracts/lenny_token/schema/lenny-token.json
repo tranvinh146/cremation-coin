@@ -1,5 +1,5 @@
 {
-  "contract_name": "cremation-token",
+  "contract_name": "lenny-token",
   "contract_version": "1.0.0",
   "idl_version": "1.0.0",
   "instantiate": {
@@ -9,6 +9,7 @@
     "required": [
       "cw20_instantiate_msg",
       "owner",
+      "swap_tax_to_token",
       "tax_info"
     ],
     "properties": {
@@ -16,6 +17,9 @@
         "$ref": "#/definitions/InstantiateMsg"
       },
       "owner": {
+        "$ref": "#/definitions/Addr"
+      },
+      "swap_tax_to_token": {
         "$ref": "#/definitions/Addr"
       },
       "tax_info": {
@@ -281,18 +285,32 @@
       {
         "type": "object",
         "required": [
-          "set_config"
+          "set_dex_configs"
         ],
         "properties": {
-          "set_config": {
+          "set_dex_configs": {
             "type": "object",
             "required": [
-              "terraswap_pair",
+              "terraport_pairs",
+              "terraport_router",
+              "terraswap_pairs",
               "terraswap_router"
             ],
             "properties": {
-              "terraswap_pair": {
+              "terraport_pairs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/Addr"
+                }
+              },
+              "terraport_router": {
                 "$ref": "#/definitions/Addr"
+              },
+              "terraswap_pairs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/Addr"
+                }
               },
               "terraswap_router": {
                 "$ref": "#/definitions/Addr"
@@ -769,42 +787,6 @@
         "additionalProperties": false
       },
       {
-        "type": "object",
-        "required": [
-          "initialize_marketing"
-        ],
-        "properties": {
-          "initialize_marketing": {
-            "type": "object",
-            "properties": {
-              "description": {
-                "description": "A longer description of the token and it's utility. Designed for tooltips or such",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "marketing": {
-                "description": "The address (if any) who can update this data structure",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "project": {
-                "description": "A URL pointing to the project behind this token.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              }
-            },
-            "additionalProperties": false
-          }
-        },
-        "additionalProperties": false
-      },
-      {
         "description": "If set as the \"marketing\" role on the contract, upload a new URL, SVG, or PNG for the token",
         "type": "object",
         "required": [
@@ -981,20 +963,6 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "QueryMsg",
     "oneOf": [
-      {
-        "description": "DEPRECATED: Returns the current config of the contract. - terraswap_router: Terraswap Router contract address - terraswap_pair: Terraswap Pair contract address",
-        "type": "object",
-        "required": [
-          "config"
-        ],
-        "properties": {
-          "config": {
-            "type": "object",
-            "additionalProperties": false
-          }
-        },
-        "additionalProperties": false
-      },
       {
         "description": "Returns the dex contracts. - terraswap_router: Terraswap Router contract address - terraswap_pair: Terraswap Pair contract address - terraport_router: Terraport Router contract address - terraport_pair: Terraport Pair contract address",
         "type": "object",
@@ -1610,30 +1578,6 @@
       ],
       "properties": {
         "collect_tax_address": {
-          "$ref": "#/definitions/Addr"
-        }
-      },
-      "additionalProperties": false,
-      "definitions": {
-        "Addr": {
-          "description": "A human readable address.\n\nIn Cosmos, this is typically bech32 encoded. But for multi-chain smart contracts no assumptions should be made other than being UTF-8 encoded and of reasonable length.\n\nThis type represents a validated address. It can be created in the following ways 1. Use `Addr::unchecked(input)` 2. Use `let checked: Addr = deps.api.addr_validate(input)?` 3. Use `let checked: Addr = deps.api.addr_humanize(canonical_addr)?` 4. Deserialize from JSON. This must only be done from JSON that was validated before such as a contract's state. `Addr` must not be used in messages sent by the user because this would result in unvalidated instances.\n\nThis type is immutable. If you really need to mutate it (Really? Are you sure?), create a mutable copy using `let mut mutable = Addr::to_string()` and operate on that `String` instance.",
-          "type": "string"
-        }
-      }
-    },
-    "config": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "ConfigResponse",
-      "type": "object",
-      "required": [
-        "terraswap_pair",
-        "terraswap_router"
-      ],
-      "properties": {
-        "terraswap_pair": {
-          "$ref": "#/definitions/Addr"
-        },
-        "terraswap_router": {
           "$ref": "#/definitions/Addr"
         }
       },

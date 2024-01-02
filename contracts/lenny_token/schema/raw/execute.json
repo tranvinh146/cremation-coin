@@ -5,18 +5,32 @@
     {
       "type": "object",
       "required": [
-        "set_config"
+        "set_dex_configs"
       ],
       "properties": {
-        "set_config": {
+        "set_dex_configs": {
           "type": "object",
           "required": [
-            "terraswap_pair",
+            "terraport_pairs",
+            "terraport_router",
+            "terraswap_pairs",
             "terraswap_router"
           ],
           "properties": {
-            "terraswap_pair": {
+            "terraport_pairs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Addr"
+              }
+            },
+            "terraport_router": {
               "$ref": "#/definitions/Addr"
+            },
+            "terraswap_pairs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Addr"
+              }
             },
             "terraswap_router": {
               "$ref": "#/definitions/Addr"
@@ -463,42 +477,6 @@
       ],
       "properties": {
         "update_marketing": {
-          "type": "object",
-          "properties": {
-            "description": {
-              "description": "A longer description of the token and it's utility. Designed for tooltips or such",
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "marketing": {
-              "description": "The address (if any) who can update this data structure",
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "project": {
-              "description": "A URL pointing to the project behind this token.",
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          },
-          "additionalProperties": false
-        }
-      },
-      "additionalProperties": false
-    },
-    {
-      "type": "object",
-      "required": [
-        "initialize_marketing"
-      ],
-      "properties": {
-        "initialize_marketing": {
           "type": "object",
           "properties": {
             "description": {

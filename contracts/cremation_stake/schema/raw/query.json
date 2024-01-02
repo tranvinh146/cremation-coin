@@ -3,6 +3,19 @@
   "title": "QueryMsg",
   "oneOf": [
     {
+      "type": "object",
+      "required": [
+        "total_staked"
+      ],
+      "properties": {
+        "total_staked": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
       "description": "Returns the staking status of the given address.",
       "type": "object",
       "required": [
