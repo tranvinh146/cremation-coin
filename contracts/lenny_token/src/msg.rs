@@ -6,30 +6,30 @@ use cw20_base::msg::InstantiateMsg as Cw20InstantiateMsg;
 use crate::state::{FractionFormat, TaxInfo};
 
 #[cw_serde]
+pub struct MigrateMsg {}
+
+#[cw_serde]
 pub enum Dex {
     Terraswap,
     Terraport,
 }
 
 #[cw_serde]
-pub struct MigrateMsg {
-    // pub terraport_router: Addr,
-    // pub terraport_pairs: Vec<Addr>,
-}
-
-#[cw_serde]
 pub struct InstantiateMsg {
     pub owner: Addr,
     pub tax_info: TaxInfo,
+    pub swap_tax_to_token: Addr,
     pub cw20_instantiate_msg: Cw20InstantiateMsg,
 }
 
 #[cw_serde]
 pub enum ExecuteMsg {
     // ======= Extend executes for cremation-coin =======
-    SetConfig {
+    SetDexConfigs {
         terraswap_router: Addr,
-        terraswap_pair: Addr,
+        terraswap_pairs: Vec<Addr>,
+        terraport_router: Addr,
+        terraport_pairs: Vec<Addr>,
     },
     UpdateOwner {
         new_owner: Addr,
@@ -127,14 +127,6 @@ pub enum ExecuteMsg {
         /// The address (if any) who can update this data structure
         marketing: Option<String>,
     },
-    InitializeMarketing {
-        /// A URL pointing to the project behind this token.
-        project: Option<String>,
-        /// A longer description of the token and it's utility. Designed for tooltips or such
-        description: Option<String>,
-        /// The address (if any) who can update this data structure
-        marketing: Option<String>,
-    },
     /// If set as the "marketing" role on the contract, upload a new URL, SVG, or PNG for the token
     UploadLogo(Logo),
 }
@@ -143,11 +135,6 @@ pub enum ExecuteMsg {
 #[derive(QueryResponses)]
 pub enum QueryMsg {
     // ======= Extended queries from cremation-coin =======
-    /// DEPRECATED: Returns the current config of the contract.
-    /// - terraswap_router: Terraswap Router contract address
-    /// - terraswap_pair: Terraswap Pair contract address
-    #[returns(ConfigResponse)]
-    Config {},
     /// Returns the dex contracts.
     /// - terraswap_router: Terraswap Router contract address
     /// - terraswap_pair: Terraswap Pair contract address
@@ -216,11 +203,6 @@ pub enum QueryMsg {
     /// contract.
     #[returns(cw20::DownloadLogoResponse)]
     DownloadLogo {},
-}
-#[cw_serde]
-pub struct ConfigResponse {
-    pub terraswap_router: Addr,
-    pub terraswap_pair: Addr,
 }
 
 #[cw_serde]

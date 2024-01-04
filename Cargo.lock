@@ -641,6 +641,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "lenny-token"
+version = "1.0.0"
+dependencies = [
+ "classic_terraswap",
+ "cosmwasm-schema",
+ "cosmwasm-std",
+ "cw-storage-plus 1.1.0",
+ "cw2 1.1.0",
+ "cw20 1.1.0",
+ "cw20-base",
+ "schemars",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.147"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -5,7 +5,7 @@ use cosmwasm_std::{
     StdResult, Storage, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
-use cw20::{Cw20ReceiveMsg, MarketingInfoResponse};
+use cw20::Cw20ReceiveMsg;
 use cw20_base::{
     allowances::{
         deduct_allowance, execute_burn_from, execute_decrease_allowance,
@@ -17,12 +17,12 @@ use cw20_base::{
         query_marketing_info, query_minter, query_token_info,
     },
     enumerable::{query_all_accounts, query_owner_allowances, query_spender_allowances},
-    state::{BALANCES, LOGO, MARKETING_INFO},
+    state::BALANCES,
     ContractError,
 };
 
 // version info for migration info
-const CONTRACT_NAME: &str = "cremation-token";
+const CONTRACT_NAME: &str = "lenny-token";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub const SWAP_COLLECTED_TAX_THRESHOLD: Uint128 = Uint128::new(10_000 * 1_000_000);
@@ -41,6 +41,7 @@ pub fn instantiate(
     OWNER.save(deps.storage, &msg.owner)?;
     COLLECT_TAX_ADDRESS.save(deps.storage, &msg.owner)?;
     TAX_FREE_ADDRESSES.save(deps.storage, msg.owner, &true)?;
+    SWAP_TAX_TO_TOKEN.save(deps.storage, &msg.swap_tax_to_token)?;
 
     cw20_instantiate(deps, env.clone(), info, msg.cw20_instantiate_msg)
 }
@@ -52,11 +53,21 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        // ======= Extend executes for cremation-coin =======
-        ExecuteMsg::SetConfig {
+        // ======= Extend executes for lenny-coin =======
+        ExecuteMsg::SetDexConfigs {
             terraswap_router,
-            terraswap_pair,
-        } => execute::set_config(deps, env, info, terraswap_router, terraswap_pair),
+            terraswap_pairs,
+            terraport_router,
+            terraport_pairs,
+        } => execute::set_dex_configs(
+            deps,
+            env,
+            info,
+            terraswap_router,
+            terraswap_pairs,
+            terraport_router,
+            terraport_pairs,
+        ),
         ExecuteMsg::UpdateOwner { new_owner } => execute::update_owner(deps, env, info, new_owner),
         ExecuteMsg::AddNewPairs {
             dex,
@@ -115,33 +126,6 @@ pub fn execute(
             description,
             marketing,
         } => execute_update_marketing(deps, env, info, project, description, marketing),
-        ExecuteMsg::InitializeMarketing {
-            project,
-            description,
-            marketing,
-        } => {
-            let owner = OWNER.load(deps.storage)?;
-
-            if info.sender != owner {
-                return Err(ContractError::Unauthorized {});
-            }
-
-            MARKETING_INFO.remove(deps.storage);
-            LOGO.remove(deps.storage);
-
-            let data = MarketingInfoResponse {
-                project,
-                description,
-                marketing: marketing
-                    .map(|addr| deps.api.addr_validate(&addr))
-                    .transpose()?,
-                logo: None,
-            };
-            MARKETING_INFO.save(deps.storage, &data)?;
-
-            let res = Response::new().add_attribute("action", "update_marketing");
-            Ok(res)
-        }
         ExecuteMsg::UploadLogo(logo) => execute_upload_logo(deps, env, info, logo),
     }
 }
@@ -156,27 +140,31 @@ pub mod execute {
 
     use super::{internal::*, *};
 
-    pub fn set_config(
+    pub fn set_dex_configs(
         deps: DepsMut,
         _env: Env,
         info: MessageInfo,
         terraswap_router: Addr,
-        terraswap_pair: Addr,
+        terraswap_pairs: Vec<Addr>,
+        terraport_router: Addr,
+        terraport_pairs: Vec<Addr>,
     ) -> Result<Response, ContractError> {
         let creator = CREATOR.load(deps.storage)?;
         if info.sender != creator {
             return Err(ContractError::Unauthorized {});
         }
 
-        if CONFIG.exists(deps.storage) {
+        if DEX_CONFIGS.exists(deps.storage) {
             return Err(StdError::generic_err("Config has already initialized").into());
         }
 
-        let config = Config {
+        let config = DexConfigs {
             terraswap_router,
-            terraswap_pair,
+            terraswap_pairs,
+            terraport_router,
+            terraport_pairs,
         };
-        CONFIG.save(deps.storage, &config)?;
+        DEX_CONFIGS.save(deps.storage, &config)?;
         Ok(Response::new())
     }
 
@@ -236,10 +224,10 @@ pub mod execute {
         }
 
         COLLECT_TAX_ADDRESS.save(deps.storage, &new_collect_tax_addr)?;
-
+        
         TAX_FREE_ADDRESSES.save(deps.storage, old_collect_tax_address, &false)?;
         TAX_FREE_ADDRESSES.save(deps.storage, new_collect_tax_addr, &true)?;
-
+        
         Ok(Response::new())
     }
 
@@ -317,7 +305,7 @@ pub mod execute {
         }
         .into_cosmos_msg(contract)?];
 
-        let msg_opt = swap_collected_tax_to_native(deps, env, &sender_addr, &rcpt_addr)?;
+        let msg_opt = swap_collected_tax_to_cw20(deps, env, &sender_addr, &rcpt_addr)?;
         if let Some(swap_msg) = msg_opt {
             attrs.push(attr("action", "collected_tax_swap"));
             messages.push(swap_msg);
@@ -364,7 +352,7 @@ pub mod execute {
         }
         .into_cosmos_msg(contract)?];
 
-        let msg_opt = swap_collected_tax_to_native(deps, env, &owner_addr, &rcpt_addr)?;
+        let msg_opt = swap_collected_tax_to_cw20(deps, env, &owner_addr, &rcpt_addr)?;
         if let Some(swap_msg) = msg_opt {
             attrs.push(attr("action", "collected_tax_swap"));
             messages.push(swap_msg)
@@ -535,7 +523,7 @@ pub mod execute {
         }
     }
 
-    fn swap_collected_tax_to_native(
+    fn swap_collected_tax_to_cw20(
         deps: DepsMut,
         env: Env,
         from: &Addr,
@@ -584,6 +572,8 @@ pub mod execute {
             update_fn,
         )?;
 
+        let swap_to_token = SWAP_TAX_TO_TOKEN.load(deps.storage)?;
+
         // swap collected tax to native token
         let cw20_send_msg = ExecuteMsg::SendFrom {
             owner: collect_tax_addr.to_string(),
@@ -594,8 +584,8 @@ pub mod execute {
                     offer_asset_info: AssetInfo::Token {
                         contract_addr: env.contract.address.to_string(),
                     },
-                    ask_asset_info: AssetInfo::NativeToken {
-                        denom: "uluna".to_string(),
+                    ask_asset_info: AssetInfo::Token {
+                        contract_addr: swap_to_token.to_string(),
                     },
                 }],
                 to: Some(collect_tax_addr.to_string()),
@@ -691,8 +681,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::MarketingInfo {} => to_binary(&query_marketing_info(deps)?),
         QueryMsg::DownloadLogo {} => to_binary(&query_download_logo(deps)?),
 
-        // ======= Extend queries for cremation-coin =======
-        QueryMsg::Config {} => to_binary(&query::config(deps)?), // DEPRECATED
+        // ======= Extend queries for lenny-coin =======
         QueryMsg::DexConfigs {} => to_binary(&query::dex_configs(deps)?),
         QueryMsg::Owner {} => to_binary(&query::owner(deps)?),
         QueryMsg::CollectTaxAddress {} => to_binary(&query::collect_tax_address(deps)?),
@@ -705,15 +694,6 @@ pub mod query {
     use cosmwasm_std::Decimal;
 
     use super::*;
-
-    /// DEPRECATED: Returns only terraswap config.
-    pub fn config(deps: Deps) -> StdResult<ConfigResponse> {
-        let config = CONFIG.load(deps.storage)?;
-        Ok(ConfigResponse {
-            terraswap_router: config.terraswap_router,
-            terraswap_pair: config.terraswap_pair,
-        })
-    }
 
     pub fn dex_configs(deps: Deps) -> StdResult<DexConfigsResponse> {
         let dex_configs = DEX_CONFIGS.load(deps.storage)?;

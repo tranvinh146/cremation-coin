@@ -1,0 +1,24 @@
+[package]
+name = "lenny-token"
+version = "1.0.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+backtraces = ["cosmwasm-std/backtraces"]
+# use library feature to disable all init/handle/query exports
+library = []
+
+[dependencies]
+cw2 = "1.0.1"
+cw20 = "1.0.1"
+cw20-base = { version = "1.0.1", features = ["library"] }
+classic_terraswap = "2.7.0"
+cw-storage-plus = "1.0.0"
+cosmwasm-std = "1.0.0"
+cosmwasm-schema = "1.0.4"
+serde = { version = "1.0.103", default-features = false, features = ["derive"] }
+thiserror = "1.0.23"
+schemars = "0.8.1"
