@@ -16,9 +16,9 @@ pub enum Dex {
 
 #[cw_serde]
 pub struct InstantiateMsg {
-    pub owner: Addr,
+    pub owner: String,
     pub tax_info: TaxInfo,
-    pub swap_tax_to_token: Addr,
+    pub swap_tax_to_token: String,
     pub cw20_instantiate_msg: Cw20InstantiateMsg,
 }
 
@@ -26,20 +26,20 @@ pub struct InstantiateMsg {
 pub enum ExecuteMsg {
     // ======= Extend executes for cremation-coin =======
     SetDexConfigs {
-        terraswap_router: Addr,
-        terraswap_pairs: Vec<Addr>,
-        terraport_router: Addr,
-        terraport_pairs: Vec<Addr>,
+        terraswap_router: String,
+        terraswap_pairs: Vec<String>,
+        terraport_router: String,
+        terraport_pairs: Vec<String>,
     },
     UpdateOwner {
-        new_owner: Addr,
+        new_owner: String,
     },
     AddNewPairs {
         dex: Dex,
-        pair_addresses: Vec<Addr>,
+        pair_addresses: Vec<String>,
     },
     UpdateCollectTaxAddress {
-        new_collect_tax_addr: Addr,
+        new_collect_tax_addr: String,
     },
     UpdateTaxInfo {
         buy_tax: Option<FractionFormat>,
@@ -47,7 +47,7 @@ pub enum ExecuteMsg {
         transfer_tax: Option<FractionFormat>,
     },
     SetTaxFreeAddress {
-        address: Addr,
+        address: String,
         tax_free: bool,
     },
 

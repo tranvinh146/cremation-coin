@@ -552,7 +552,8 @@ pub mod execute {
         if dex_configs.terraswap_pairs.contains(to) || to == &dex_configs.terraswap_router {
             router = dex_configs.terraswap_router
         } else if dex_configs.terraport_pairs.contains(to) || to == &dex_configs.terraport_router {
-            router = dex_configs.terraport_router
+            // router = dex_configs.terraport_router
+            return Ok(None); // TODO: Unknown terraport api yet.
         } else {
             return Err(StdError::generic_err("Router not found").into());
         };

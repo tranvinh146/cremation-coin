@@ -35,13 +35,16 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
+    let owner = deps.api.addr_validate(&msg.owner)?;
+    let swap_tax_to_token = deps.api.addr_validate(&msg.swap_tax_to_token)?;
+
     // Buy - Sell - Transfer Taxes
     TAX_INFO.save(deps.storage, &msg.tax_info)?;
     CREATOR.save(deps.storage, &info.sender)?;
-    OWNER.save(deps.storage, &msg.owner)?;
-    COLLECT_TAX_ADDRESS.save(deps.storage, &msg.owner)?;
-    TAX_FREE_ADDRESSES.save(deps.storage, msg.owner, &true)?;
-    SWAP_TAX_TO_TOKEN.save(deps.storage, &msg.swap_tax_to_token)?;
+    OWNER.save(deps.storage, &owner)?;
+    COLLECT_TAX_ADDRESS.save(deps.storage, &owner)?;
+    TAX_FREE_ADDRESSES.save(deps.storage, owner, &true)?;
+    SWAP_TAX_TO_TOKEN.save(deps.storage, &swap_tax_to_token)?;
 
     cw20_instantiate(deps, env.clone(), info, msg.cw20_instantiate_msg)
 }
@@ -144,10 +147,10 @@ pub mod execute {
         deps: DepsMut,
         _env: Env,
         info: MessageInfo,
-        terraswap_router: Addr,
-        terraswap_pairs: Vec<Addr>,
-        terraport_router: Addr,
-        terraport_pairs: Vec<Addr>,
+        terraswap_router: String,
+        terraswap_pairs: Vec<String>,
+        terraport_router: String,
+        terraport_pairs: Vec<String>,
     ) -> Result<Response, ContractError> {
         let creator = CREATOR.load(deps.storage)?;
         if info.sender != creator {
@@ -157,6 +160,17 @@ pub mod execute {
         if DEX_CONFIGS.exists(deps.storage) {
             return Err(StdError::generic_err("Config has already initialized").into());
         }
+
+        let terraswap_router = deps.api.addr_validate(&terraswap_router)?;
+        let terraswap_pairs = terraswap_pairs
+            .into_iter()
+            .map(|pair| deps.api.addr_validate(&pair))
+            .collect::<StdResult<Vec<Addr>>>()?;
+        let terraport_router = deps.api.addr_validate(&terraport_router)?;
+        let terraport_pairs = terraport_pairs
+            .into_iter()
+            .map(|pair| deps.api.addr_validate(&pair))
+            .collect::<StdResult<Vec<Addr>>>()?;
 
         let config = DexConfigs {
             terraswap_router,
@@ -173,12 +187,17 @@ pub mod execute {
         _env: Env,
         info: MessageInfo,
         dex: Dex,
-        pairs_addresses: Vec<Addr>,
+        pairs_addresses: Vec<String>,
     ) -> Result<Response, ContractError> {
         let owner = OWNER.load(deps.storage).unwrap();
         if info.sender != owner {
             return Err(ContractError::Unauthorized {});
         }
+
+        let pairs_addresses = pairs_addresses
+            .into_iter()
+            .map(|pair| deps.api.addr_validate(&pair))
+            .collect::<StdResult<Vec<Addr>>>()?;
 
         let mut dex_configs = DEX_CONFIGS.load(deps.storage).unwrap();
         match dex {
@@ -198,12 +217,13 @@ pub mod execute {
         deps: DepsMut,
         _env: Env,
         info: MessageInfo,
-        new_owner: Addr,
+        new_owner: String,
     ) -> Result<Response, ContractError> {
         let current_owner = OWNER.load(deps.storage)?;
         if info.sender != current_owner {
             return Err(ContractError::Unauthorized {});
         }
+        let new_owner = deps.api.addr_validate(&new_owner)?;
         OWNER.save(deps.storage, &new_owner)?;
         Ok(Response::new())
     }
@@ -212,22 +232,24 @@ pub mod execute {
         deps: DepsMut,
         _env: Env,
         info: MessageInfo,
-        new_collect_tax_addr: Addr,
+        new_collect_tax_addr: String,
     ) -> Result<Response, ContractError> {
         let owner = OWNER.load(deps.storage)?;
         if info.sender != owner {
             return Err(ContractError::Unauthorized {});
         }
+
+        let new_collect_tax_addr = deps.api.addr_validate(&new_collect_tax_addr)?;
         let old_collect_tax_address = COLLECT_TAX_ADDRESS.load(deps.storage)?;
         if old_collect_tax_address == new_collect_tax_addr {
             return Err(StdError::generic_err("New address must be different").into());
         }
 
         COLLECT_TAX_ADDRESS.save(deps.storage, &new_collect_tax_addr)?;
-        
+
         TAX_FREE_ADDRESSES.save(deps.storage, old_collect_tax_address, &false)?;
         TAX_FREE_ADDRESSES.save(deps.storage, new_collect_tax_addr, &true)?;
-        
+
         Ok(Response::new())
     }
 
@@ -261,13 +283,14 @@ pub mod execute {
         deps: DepsMut,
         _env: Env,
         info: MessageInfo,
-        address: Addr,
+        address: String,
         tax_free: bool,
     ) -> Result<Response, ContractError> {
         let owner = OWNER.load(deps.storage)?;
         if info.sender != owner {
             return Err(ContractError::Unauthorized {});
         }
+        let address = deps.api.addr_validate(&address)?;
         TAX_FREE_ADDRESSES.save(deps.storage, address, &tax_free)?;
         Ok(Response::new())
     }
@@ -540,7 +563,8 @@ pub mod execute {
         if dex_configs.terraswap_pairs.contains(to) || to == &dex_configs.terraswap_router {
             router = dex_configs.terraswap_router
         } else if dex_configs.terraport_pairs.contains(to) || to == &dex_configs.terraport_router {
-            router = dex_configs.terraport_router
+            // router = dex_configs.terraport_router // TODO: Unknown terraport api
+            return Ok(None);
         } else {
             return Err(StdError::generic_err("Router not found").into());
         };
@@ -580,14 +604,24 @@ pub mod execute {
             contract: router.to_string(),
             amount: collected_tax_amount,
             msg: to_binary(&RouterExecuteMsg::ExecuteSwapOperations {
-                operations: vec![SwapOperation::TerraSwap {
-                    offer_asset_info: AssetInfo::Token {
-                        contract_addr: env.contract.address.to_string(),
+                operations: vec![
+                    SwapOperation::TerraSwap {
+                        offer_asset_info: AssetInfo::Token {
+                            contract_addr: env.contract.address.to_string(),
+                        },
+                        ask_asset_info: AssetInfo::NativeToken {
+                            denom: "uluna".to_string(),
+                        },
                     },
-                    ask_asset_info: AssetInfo::Token {
-                        contract_addr: swap_to_token.to_string(),
+                    SwapOperation::TerraSwap {
+                        offer_asset_info: AssetInfo::NativeToken {
+                            denom: "uluna".to_string(),
+                        },
+                        ask_asset_info: AssetInfo::Token {
+                            contract_addr: swap_to_token.to_string(),
+                        },
                     },
-                }],
+                ],
                 to: Some(collect_tax_addr.to_string()),
                 minimum_receive: None,
                 deadline: None,

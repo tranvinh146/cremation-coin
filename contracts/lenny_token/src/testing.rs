@@ -33,9 +33,9 @@ mod helpers {
         cw20_instantiate_msg: Cw20InstantiateMsg,
     ) -> Result<Response, ContractError> {
         let msg = InstantiateMsg {
-            owner: Addr::unchecked(owner),
+            owner: owner.to_string(),
             tax_info,
-            swap_tax_to_token: Addr::unchecked("cremat_token"),
+            swap_tax_to_token: "cremat_token".to_string(),
             cw20_instantiate_msg,
         };
         instantiate(deps.as_mut(), mock_env(), mock_info("creator", &[]), msg)
@@ -65,15 +65,28 @@ mod helpers {
         .unwrap();
 
         let dex_configs = get_dex_configs();
+        let terraswap_router = dex_configs.terraswap_router.to_string();
+        let terraswap_pairs = dex_configs
+            .terraswap_pairs
+            .into_iter()
+            .map(|addr| addr.to_string())
+            .collect::<Vec<String>>();
+        let terraport_router = dex_configs.terraport_router.to_string();
+        let terraport_pairs = dex_configs
+            .terraport_pairs
+            .into_iter()
+            .map(|addr| addr.to_string())
+            .collect::<Vec<String>>();
+
         execute(
             deps.as_mut(),
             mock_env(),
             mock_info("creator", &[]),
             ExecuteMsg::SetDexConfigs {
-                terraswap_router: dex_configs.terraswap_router,
-                terraswap_pairs: dex_configs.terraswap_pairs,
-                terraport_router: dex_configs.terraport_router,
-                terraport_pairs: dex_configs.terraport_pairs,
+                terraswap_router,
+                terraswap_pairs,
+                terraport_router,
+                terraport_pairs,
             },
         )
         .unwrap();
@@ -122,8 +135,8 @@ fn proper_initialization() {
     };
     let total_supply = Uint128::new(1_000_000_000_000);
     let msg = InstantiateMsg {
-        owner: Addr::unchecked(owner),
-        swap_tax_to_token: Addr::unchecked("cremat_token"),
+        owner: owner.to_string(),
+        swap_tax_to_token: "cremat_token".to_string(),
         tax_info: TaxInfo {
             buy_tax: Some(tax_rate.clone()),
             sell_tax: Some(tax_rate.clone()),
@@ -144,15 +157,27 @@ fn proper_initialization() {
     instantiate(deps.as_mut(), env, mock_info(creator, &[]), msg).unwrap();
 
     let dex_configs = get_dex_configs();
+    let terraswap_router = dex_configs.terraswap_router.to_string();
+    let terraswap_pairs = dex_configs
+        .terraswap_pairs
+        .into_iter()
+        .map(|addr| addr.to_string())
+        .collect::<Vec<String>>();
+    let terraport_router = dex_configs.terraport_router.to_string();
+    let terraport_pairs = dex_configs
+        .terraport_pairs
+        .into_iter()
+        .map(|addr| addr.to_string())
+        .collect::<Vec<String>>();
     execute(
         deps.as_mut(),
         mock_env(),
         mock_info("creator", &[]),
         ExecuteMsg::SetDexConfigs {
-            terraswap_router: dex_configs.terraswap_router,
-            terraswap_pairs: dex_configs.terraswap_pairs,
-            terraport_router: dex_configs.terraport_router,
-            terraport_pairs: dex_configs.terraport_pairs,
+            terraswap_router,
+            terraswap_pairs,
+            terraport_router,
+            terraport_pairs,
         },
     )
     .unwrap();
@@ -247,34 +272,20 @@ fn update_owner() {
     let cw20_instantiate_msg = helpers::mock_cw20_instantiate_msg(vec![]);
     helpers::initialize(&mut deps, owner, tax_info, cw20_instantiate_msg).unwrap();
 
-    let dex_configs = get_dex_configs();
-    execute(
-        deps.as_mut(),
-        mock_env(),
-        mock_info("creator", &[]),
-        ExecuteMsg::SetDexConfigs {
-            terraswap_router: dex_configs.terraswap_router,
-            terraswap_pairs: dex_configs.terraswap_pairs,
-            terraport_router: dex_configs.terraport_router,
-            terraport_pairs: dex_configs.terraport_pairs,
-        },
-    )
-    .unwrap();
-
     // fail to change owner with non-owner
-    let non_owner = "non_owner";
-    let info = mock_info(non_owner, &[]);
+    let non_owner = "non_owner".to_string();
+    let info = mock_info(&non_owner, &[]);
     let msg = ExecuteMsg::UpdateOwner {
-        new_owner: Addr::unchecked(non_owner),
+        new_owner: non_owner,
     };
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
     assert_eq!(err, ContractError::Unauthorized {});
 
     // change owner
-    let new_owner = "new_owner";
-    let info = mock_info(owner, &[]);
+    let new_owner = "new_owner".to_string();
+    let info = mock_info(&owner, &[]);
     let msg: ExecuteMsg = ExecuteMsg::UpdateOwner {
-        new_owner: Addr::unchecked(new_owner),
+        new_owner: new_owner.to_string(),
     };
     let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
@@ -353,16 +364,16 @@ fn update_collect_tax_address() {
     helpers::initialize(&mut deps, owner, tax_info, cw20_instantiate_msg).unwrap();
 
     // fail to change collect tax address with non-owner
-    let non_owner = "non_owner";
-    let info = mock_info(non_owner, &[]);
+    let non_owner = "non_owner".to_string();
+    let info = mock_info(&non_owner, &[]);
     let msg = ExecuteMsg::UpdateCollectTaxAddress {
-        new_collect_tax_addr: Addr::unchecked(non_owner),
+        new_collect_tax_addr: non_owner,
     };
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
     assert_eq!(res, ContractError::Unauthorized {});
 
     // change collect tax address
-    let new_collect_tax_addr = Addr::unchecked("new_collect_tax_addr");
+    let new_collect_tax_addr = "new_collect_tax_addr".to_string();
     let info = mock_info(owner, &[]);
     let msg = ExecuteMsg::UpdateCollectTaxAddress {
         new_collect_tax_addr: new_collect_tax_addr.clone(),
@@ -389,10 +400,10 @@ fn set_tax_free_address() {
     helpers::initialize(&mut deps, owner, tax_info, cw20_instantiate_msg).unwrap();
 
     // fail to set tax free address with non-owner
-    let non_owner = "non_owner";
-    let info = mock_info(non_owner, &[]);
+    let non_owner = "non_owner".to_string();
+    let info = mock_info(&non_owner, &[]);
     let msg = ExecuteMsg::SetTaxFreeAddress {
-        address: Addr::unchecked(non_owner),
+        address: non_owner,
         tax_free: true,
     };
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
@@ -402,7 +413,7 @@ fn set_tax_free_address() {
     let tax_free_addr = "tax_free_addr";
     let info = mock_info(owner, &[]);
     let msg = ExecuteMsg::SetTaxFreeAddress {
-        address: Addr::unchecked(tax_free_addr),
+        address: tax_free_addr.to_string(),
         tax_free: true,
     };
     let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
@@ -422,7 +433,7 @@ fn set_tax_free_address() {
     // unset tax free address
     let info = mock_info(owner, &[]);
     let msg = ExecuteMsg::SetTaxFreeAddress {
-        address: Addr::unchecked(tax_free_addr),
+        address: tax_free_addr.to_string(),
         tax_free: false,
     };
     let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
@@ -491,8 +502,8 @@ fn collect_tax_when_execute_send() {
         })
         .collect::<Vec<Cw20Coin>>();
     let init_msg = InstantiateMsg {
-        owner: owner.clone(),
-        swap_tax_to_token: Addr::unchecked("cremat_token"),
+        owner: owner.to_string(),
+        swap_tax_to_token: "cremat_token".to_string(),
         tax_info: TaxInfo {
             buy_tax: Some(buy_tax.clone()),
             sell_tax: Some(sell_tax.clone()),
@@ -632,8 +643,8 @@ fn collect_tax_when_execute_send_from() {
         .collect::<Vec<Cw20Coin>>();
 
     let init_msg = InstantiateMsg {
-        owner: owner.clone(),
-        swap_tax_to_token: Addr::unchecked("cremat_token"),
+        owner: owner.to_string(),
+        swap_tax_to_token: "cremat_token".to_string(),
         tax_info: TaxInfo {
             buy_tax: Some(buy_tax.clone()),
             sell_tax: Some(sell_tax.clone()),
@@ -775,8 +786,8 @@ fn collect_tax_when_execute_transfer() {
         .collect::<Vec<Cw20Coin>>();
 
     let init_msg = InstantiateMsg {
-        owner: owner.clone(),
-        swap_tax_to_token: Addr::unchecked("cremat_token"),
+        owner: owner.to_string(),
+        swap_tax_to_token: "cremat_token".to_string(),
         tax_info: TaxInfo {
             buy_tax: None,
             sell_tax: None,
@@ -893,8 +904,8 @@ fn collect_transfer_tax_when_execute_transfer_from() {
         .collect::<Vec<Cw20Coin>>();
 
     let init_msg = InstantiateMsg {
-        owner: owner.clone(),
-        swap_tax_to_token: Addr::unchecked("cremat_token"),
+        owner: owner.to_string(),
+        swap_tax_to_token: "cremat_token".to_string(),
         tax_info: TaxInfo {
             buy_tax: None,
             sell_tax: None,
@@ -983,8 +994,8 @@ fn trigger_auto_swap_collected_tax() {
     };
 
     let init_msg = InstantiateMsg {
-        owner: owner.clone(),
-        swap_tax_to_token: Addr::unchecked("cremat_token"),
+        owner: owner.to_string(),
+        swap_tax_to_token: "cremat_token".to_string(),
         tax_info: TaxInfo {
             buy_tax: None,
             sell_tax: Some(sell_tax.clone()),
@@ -999,11 +1010,17 @@ fn trigger_auto_swap_collected_tax() {
 
     // send from buyer to terraswap router
     let dex_configs = helpers::get_dex_configs();
-    let pair_addresses = vec![dex_configs.terraswap_pairs, dex_configs.terraport_pairs]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<Addr>>();
-    let router_addresses = vec![dex_configs.terraswap_router, dex_configs.terraport_router];
+    let pair_addresses = vec![
+        dex_configs.terraswap_pairs.clone(),
+        dex_configs.terraport_pairs.clone(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<Addr>>();
+    let router_addresses = vec![
+        dex_configs.terraswap_router.clone(),
+        dex_configs.terraport_router.clone(),
+    ];
     let dex_addresses = vec![router_addresses, pair_addresses]
         .into_iter()
         .flatten()
@@ -1027,13 +1044,18 @@ fn trigger_auto_swap_collected_tax() {
             }) => contract_addr == "lenny_token",
             _ => false,
         });
-        assert!(auto_swap_msg.is_some());
-
         let collected_tax_opt = res
             .attributes
             .iter()
             .find(|attr| attr.key == "action" && attr.value == "collected_tax_swap");
-        assert!(collected_tax_opt.is_some());
+
+        if addr == dex_configs.terraport_router || dex_configs.terraport_pairs.contains(addr) {
+            assert!(auto_swap_msg.is_none());
+            assert!(collected_tax_opt.is_none());
+        } else {
+            assert!(auto_swap_msg.is_some());
+            assert!(collected_tax_opt.is_some());
+        }
     }
 }
 
@@ -1044,8 +1066,8 @@ fn add_new_pairs_after_migrate() {
     let owner = Addr::unchecked("owner-tax-free");
 
     let init_msg = InstantiateMsg {
-        owner: owner.clone(),
-        swap_tax_to_token: Addr::unchecked("cremat_token"),
+        owner: owner.to_string(),
+        swap_tax_to_token: "cremat_token".to_string(),
         tax_info: TaxInfo {
             buy_tax: None,
             sell_tax: None,
@@ -1056,8 +1078,8 @@ fn add_new_pairs_after_migrate() {
     helpers::setup_contract(&mut deps, init_msg).unwrap();
 
     let new_pair_addresses = vec![
-        Addr::unchecked("terraswap_pair_new1"),
-        Addr::unchecked("terraswap_pair_new2"),
+        "terraswap_pair_new1".to_string(),
+        "terraswap_pair_new2".to_string(),
     ];
     let msg = ExecuteMsg::AddNewPairs {
         dex: crate::msg::Dex::Terraswap,
@@ -1081,6 +1103,6 @@ fn add_new_pairs_after_migrate() {
     }
 
     for pair in new_pair_addresses {
-        assert!(config_res.terraswap_pairs.contains(&pair));
+        assert!(config_res.terraswap_pairs.contains(&Addr::unchecked(pair)));
     }
 }
