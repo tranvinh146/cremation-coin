@@ -1,0 +1,18 @@
+use cosmwasm_std::StdError;
+use thiserror::Error;
+
+#[derive(Error, Debug, PartialEq)]
+pub enum ContractError {
+    #[error("{0}")]
+    StdError(#[from] StdError),
+    #[error("Unauthorized")]
+    Unauthorized {},
+    #[error("Already exists")]
+    AlreadyExists {},
+    #[error("Not in whitelist")]
+    NotInWhitelist {},
+    #[error("Zero amount")]
+    ZeroAmount {},
+    #[error("Zero ratio")]
+    ZeroRatio {},
+}

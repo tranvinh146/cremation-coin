@@ -1,2 +1,3 @@
 [workspace]
+exclude = ["contracts/burning_temp"]
 members = ["contracts/*"]
