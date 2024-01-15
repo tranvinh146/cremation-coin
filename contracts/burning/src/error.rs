@@ -7,6 +7,8 @@ pub enum ContractError {
     StdError(#[from] StdError),
     #[error("Unauthorized")]
     Unauthorized {},
+    #[error("Fee ratio must be less than 1")]
+    FeeRatioMustBeLessThanOne {},
     #[error("Already exists")]
     AlreadyExists {},
     #[error("Not in whitelist")]

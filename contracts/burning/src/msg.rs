@@ -13,15 +13,32 @@ pub enum Cw20HookMsg {
 }
 
 #[cw_serde]
+pub struct DevelopmentConfig {
+    pub beneficiary: String,
+    pub fee_ratio: Decimal,
+}
+
+#[cw_serde]
 pub struct InstantiateMsg {
     pub owner: String,
+    pub development_config: DevelopmentConfig,
 }
 
 #[cw_serde]
 pub enum ExecuteMsg {
-    AddToRewardWhitelist { reward_info: RewardInfo },
-    RemoveFromRewardWhitelist { token: String },
-    UpdateRewardInfo { reward_info: RewardInfo },
+    UpdateDevelopmentConfig {
+        beneficiary: Option<String>,
+        fee_ratio: Option<Decimal>,
+    },
+    AddToRewardWhitelist {
+        reward_info: RewardInfo,
+    },
+    RemoveFromRewardWhitelist {
+        token: String,
+    },
+    UpdateRewardInfo {
+        reward_info: RewardInfo,
+    },
     Burn {},
 }
 
@@ -30,6 +47,8 @@ pub enum ExecuteMsg {
 pub enum QueryMsg {
     #[returns(OwnerResponse)]
     Owner {},
+    #[returns(DevelopmentConfigResponse)]
+    DevelopmentConfig {},
     #[returns(RewardWhiteListResponse)]
     RewardWhiteList {},
     #[returns(BurnedAmountResponse)]
@@ -40,6 +59,9 @@ pub enum QueryMsg {
 pub struct OwnerResponse {
     pub owner: Addr,
 }
+
+#[cw_serde]
+pub struct DevelopmentConfigResponse(pub DevelopmentConfig);
 
 #[cw_serde]
 pub struct RewardWhiteListResponse {

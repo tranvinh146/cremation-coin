@@ -1,6 +1,6 @@
 use cosmwasm_std::{
-    to_binary, Attribute, BankMsg, Binary, Coin, Deps, DepsMut, Env, MessageInfo, QueryRequest,
-    Response, StdResult, Uint128, WasmMsg, WasmQuery,
+    to_binary, Attribute, BankMsg, Binary, Coin, Decimal, Deps, DepsMut, Env, MessageInfo,
+    QueryRequest, Response, StdResult, Uint128, WasmMsg, WasmQuery,
 };
 use cw2::set_contract_version;
 use cw20::{BalanceResponse as Cw20BalanceResponse, Cw20ExecuteMsg, Cw20QueryMsg};
@@ -16,12 +16,23 @@ pub fn instantiate(
     _env: Env,
     _info: MessageInfo,
     msg: InstantiateMsg,
-) -> StdResult<Response> {
+) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
     let owner = deps.api.addr_validate(&msg.owner)?;
     OWNER.save(deps.storage, &owner)?;
     BURNED_AMOUNT.save(deps.storage, &Uint128::zero())?;
+
+    let fee_ratio = msg.development_config.fee_ratio;
+    if fee_ratio >= Decimal::one() {
+        return Err(ContractError::FeeRatioMustBeLessThanOne {});
+    }
+    DEVELOPMENT_FEE_RATIO.save(deps.storage, &fee_ratio)?;
+
+    let beneficiary = deps
+        .api
+        .addr_validate(&msg.development_config.beneficiary)?;
+    DEVELOPMENT_FEE_BENEFICIARY.save(deps.storage, &beneficiary)?;
 
     Ok(Response::default())
 }
@@ -33,6 +44,10 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
+        ExecuteMsg::UpdateDevelopmentConfig {
+            fee_ratio,
+            beneficiary,
+        } => execute::update_development_config(deps, env, info, fee_ratio, beneficiary),
         ExecuteMsg::AddToRewardWhitelist { reward_info } => {
             execute::add_to_reward_whitelist(deps, env, info, reward_info)
         }
@@ -49,6 +64,7 @@ pub fn execute(
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Owner {} => to_binary(&query::owner(deps)?),
+        QueryMsg::DevelopmentConfig {} => to_binary(&query::development_config(deps)?),
         QueryMsg::RewardWhiteList {} => to_binary(&query::reward_whitelist(deps)?),
         QueryMsg::BurnedAmount {} => to_binary(&query::burned_amount(deps)?),
     }
@@ -56,6 +72,44 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 
 mod execute {
     use super::*;
+
+    pub fn update_development_config(
+        deps: DepsMut,
+        _env: Env,
+        info: MessageInfo,
+        fee_ratio: Option<Decimal>,
+        beneficiary: Option<String>,
+    ) -> Result<Response, ContractError> {
+        let owner = OWNER.load(deps.storage)?;
+        if owner != info.sender {
+            return Err(ContractError::Unauthorized {});
+        }
+
+        let mut attrs = vec![];
+        if let Some(fee_ratio) = fee_ratio {
+            if fee_ratio >= Decimal::one() {
+                return Err(ContractError::FeeRatioMustBeLessThanOne {});
+            }
+            DEVELOPMENT_FEE_RATIO.save(deps.storage, &fee_ratio)?;
+            attrs.push(Attribute {
+                key: "fee_ratio".to_string(),
+                value: fee_ratio.to_string(),
+            });
+        }
+        if let Some(beneficiary) = beneficiary {
+            let beneficiary = deps.api.addr_validate(&beneficiary)?;
+            DEVELOPMENT_FEE_BENEFICIARY.save(deps.storage, &beneficiary)?;
+            attrs.push(Attribute {
+                key: "beneficiary".to_string(),
+                value: beneficiary.to_string(),
+            });
+        }
+
+        let res = Response::new()
+            .add_attribute("action", "update_development_config")
+            .add_attributes(attrs);
+        Ok(res)
+    }
 
     pub fn add_to_reward_whitelist(
         deps: DepsMut,
@@ -157,11 +211,24 @@ mod execute {
             return Err(ContractError::ZeroAmount {});
         }
 
+        let fee_beneficiary = DEVELOPMENT_FEE_BENEFICIARY.load(deps.storage)?;
+        let fee_ratio = DEVELOPMENT_FEE_RATIO.load(deps.storage)?;
+        let development_fee = burn_amount * fee_ratio;
+        let fee_msg = BankMsg::Send {
+            to_address: fee_beneficiary.to_string(),
+            amount: vec![Coin {
+                denom: "uluna".to_string(),
+                amount: development_fee,
+            }],
+        };
+
+        let actual_burn_amount = burn_amount - development_fee;
+
         let rewards = REWARD_WHITELIST
             .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
             .map(|item| {
                 item.map(|(token, reward_ratio)| {
-                    let reward_amount = burn_amount * reward_ratio;
+                    let reward_amount = actual_burn_amount * reward_ratio;
                     (token, reward_amount)
                 })
             })
@@ -215,21 +282,23 @@ mod execute {
         }
 
         BURNED_AMOUNT.update(deps.storage, |burned_amount: Uint128| -> StdResult<_> {
-            Ok(burned_amount + burn_amount)
+            Ok(burned_amount + actual_burn_amount)
         })?;
 
         let burn_msg = BankMsg::Burn {
             amount: vec![Coin {
                 denom: "uluna".to_string(),
-                amount: burn_amount,
+                amount: actual_burn_amount,
             }],
         };
 
         let res = Response::new()
             .add_message(burn_msg)
+            .add_message(fee_msg)
             .add_messages(reward_msgs)
             .add_attribute("action", "burn")
-            .add_attribute("burn_amount", burn_amount)
+            .add_attribute("burn_amount", actual_burn_amount)
+            .add_attribute("development_fee", development_fee)
             .add_attributes(attrs);
         Ok(res)
     }
@@ -241,6 +310,16 @@ mod query {
     pub fn owner(deps: Deps) -> StdResult<OwnerResponse> {
         let owner = OWNER.load(deps.storage)?;
         Ok(OwnerResponse { owner })
+    }
+
+    pub fn development_config(deps: Deps) -> StdResult<DevelopmentConfigResponse> {
+        let fee_ratio = DEVELOPMENT_FEE_RATIO.load(deps.storage)?;
+        let fee_beneficiary = DEVELOPMENT_FEE_BENEFICIARY.load(deps.storage)?;
+        let development_config = DevelopmentConfig {
+            fee_ratio,
+            beneficiary: fee_beneficiary.to_string(),
+        };
+        Ok(DevelopmentConfigResponse(development_config))
     }
 
     pub fn reward_whitelist(deps: Deps) -> StdResult<RewardWhiteListResponse> {

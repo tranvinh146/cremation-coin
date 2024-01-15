@@ -66,15 +66,21 @@ mod helpers {
         app: &mut App,
         owner: &str,
         init_cw20_reward: u128,
+        development_config: Option<DevelopmentConfig>,
     ) -> SetupContractsRes {
         let burning_code = ContractWrapper::new(execute, instantiate, query);
         let burning_code_id = app.store_code(Box::new(burning_code));
+        let development_config = development_config.unwrap_or(DevelopmentConfig {
+            fee_ratio: Decimal::percent(2),
+            beneficiary: "beneficiary".to_string(),
+        });
         let burning_addr = app
             .instantiate_contract(
                 burning_code_id,
                 Addr::unchecked("deployer"),
                 &InstantiateMsg {
                     owner: owner.to_string(),
+                    development_config,
                 },
                 &[],
                 "BurningContract",
@@ -147,9 +153,14 @@ fn init_properly() {
     let env = mock_env();
     let info = mock_info("deployer", &[]);
     let owner = "owner";
+    let development_config = DevelopmentConfig {
+        fee_ratio: Decimal::percent(2),
+        beneficiary: "beneficiary".to_string(),
+    };
 
     let init_msg = InstantiateMsg {
         owner: owner.to_string(),
+        development_config: development_config.clone(),
     };
     instantiate(deps.as_mut(), env, info, init_msg).unwrap();
 
@@ -166,6 +177,12 @@ fn init_properly() {
     let burned_amount_query = query(deps.as_ref(), mock_env(), QueryMsg::BurnedAmount {}).unwrap();
     let burned_amount_res: BurnedAmountResponse = from_binary(&burned_amount_query).unwrap();
     assert_eq!(burned_amount_res.burned_amount, Uint128::zero());
+
+    let development_config_query =
+        query(deps.as_ref(), mock_env(), QueryMsg::DevelopmentConfig {}).unwrap();
+    let development_config_res: DevelopmentConfigResponse =
+        from_binary(&development_config_query).unwrap();
+    assert_eq!(development_config_res.0, development_config);
 }
 
 // ============= add_to_reward_whitelist =============
@@ -179,6 +196,10 @@ fn add_to_reward_whitelist_properly() {
 
     let init_msg = InstantiateMsg {
         owner: owner.to_string(),
+        development_config: DevelopmentConfig {
+            fee_ratio: Decimal::percent(2),
+            beneficiary: "beneficiary".to_string(),
+        },
     };
     instantiate(deps.as_mut(), env, info, init_msg).unwrap();
 
@@ -232,6 +253,10 @@ fn fail_to_add_to_reward_whitelist_not_authorized() {
 
     let init_msg = InstantiateMsg {
         owner: owner.to_string(),
+        development_config: DevelopmentConfig {
+            fee_ratio: Decimal::percent(2),
+            beneficiary: "beneficiary".to_string(),
+        },
     };
     instantiate(deps.as_mut(), env, info, init_msg).unwrap();
 
@@ -261,6 +286,10 @@ fn fail_to_add_to_reward_whitelist_with_zero_ratio() {
 
     let init_msg = InstantiateMsg {
         owner: owner.to_string(),
+        development_config: DevelopmentConfig {
+            fee_ratio: Decimal::percent(2),
+            beneficiary: "beneficiary".to_string(),
+        },
     };
     instantiate(deps.as_mut(), env, info, init_msg).unwrap();
 
@@ -290,6 +319,10 @@ fn fail_to_add_to_reward_whitelist_already_in_whitelist() {
 
     let init_msg = InstantiateMsg {
         owner: owner.to_string(),
+        development_config: DevelopmentConfig {
+            fee_ratio: Decimal::percent(2),
+            beneficiary: "beneficiary".to_string(),
+        },
     };
     instantiate(deps.as_mut(), env, info, init_msg).unwrap();
 
@@ -320,6 +353,10 @@ fn remove_from_reward_whitelist_properly() {
 
     let init_msg = InstantiateMsg {
         owner: owner.to_string(),
+        development_config: DevelopmentConfig {
+            fee_ratio: Decimal::percent(2),
+            beneficiary: "beneficiary".to_string(),
+        },
     };
     instantiate(deps.as_mut(), env, info, init_msg).unwrap();
 
@@ -367,6 +404,10 @@ fn fail_to_remove_from_reward_whitelist_not_authorized() {
 
     let init_msg = InstantiateMsg {
         owner: owner.to_string(),
+        development_config: DevelopmentConfig {
+            fee_ratio: Decimal::percent(2),
+            beneficiary: "beneficiary".to_string(),
+        },
     };
     instantiate(deps.as_mut(), env.clone(), info.clone(), init_msg).unwrap();
 
@@ -402,6 +443,10 @@ fn fail_to_remove_from_reward_whitelist_not_in_whitelist() {
 
     let init_msg = InstantiateMsg {
         owner: owner.to_string(),
+        development_config: DevelopmentConfig {
+            fee_ratio: Decimal::percent(2),
+            beneficiary: "beneficiary".to_string(),
+        },
     };
     instantiate(deps.as_mut(), env.clone(), info.clone(), init_msg).unwrap();
 
@@ -431,6 +476,10 @@ fn update_reward_info_properly() {
 
     let init_msg = InstantiateMsg {
         owner: owner.to_string(),
+        development_config: DevelopmentConfig {
+            fee_ratio: Decimal::percent(2),
+            beneficiary: "beneficiary".to_string(),
+        },
     };
     instantiate(deps.as_mut(), env, info, init_msg).unwrap();
 
@@ -477,6 +526,10 @@ fn fail_to_update_reward_info_not_authorized() {
 
     let init_msg = InstantiateMsg {
         owner: owner.to_string(),
+        development_config: DevelopmentConfig {
+            fee_ratio: Decimal::percent(2),
+            beneficiary: "beneficiary".to_string(),
+        },
     };
     instantiate(deps.as_mut(), env.clone(), info.clone(), init_msg).unwrap();
 
@@ -507,6 +560,10 @@ fn fail_to_update_reward_info_with_zero_ratio() {
     let owner = "owner";
     let init_msg = InstantiateMsg {
         owner: owner.to_string(),
+        development_config: DevelopmentConfig {
+            fee_ratio: Decimal::percent(2),
+            beneficiary: "beneficiary".to_string(),
+        },
     };
     instantiate(deps.as_mut(), env.clone(), info.clone(), init_msg).unwrap();
 
@@ -538,6 +595,10 @@ fn fail_to_update_reward_info_not_in_whitelist() {
     let owner = "owner";
     let init_msg = InstantiateMsg {
         owner: owner.to_string(),
+        development_config: DevelopmentConfig {
+            fee_ratio: Decimal::percent(2),
+            beneficiary: "beneficiary".to_string(),
+        },
     };
     instantiate(deps.as_mut(), env.clone(), info.clone(), init_msg).unwrap();
 
@@ -579,7 +640,16 @@ fn burn_properly() {
     });
 
     let cw20_reward = 1_000_000_000;
-    let setup_res = helpers::setup_multi_test_contracts(&mut app, owner, cw20_reward);
+    let development_config = DevelopmentConfig {
+        fee_ratio: Decimal::percent(2),
+        beneficiary: "beneficiary".to_string(),
+    };
+    let setup_res = helpers::setup_multi_test_contracts(
+        &mut app,
+        owner,
+        cw20_reward,
+        Some(development_config.clone()),
+    );
     let burning_addr = setup_res.burning_addr;
     let reward_list = setup_res.reward_list;
 
@@ -597,12 +667,23 @@ fn burn_properly() {
         )
         .unwrap();
 
+    // check development fee is collected
+    let beneficiary_balance = app
+        .wrap()
+        .query_balance(development_config.beneficiary, "uluna")
+        .unwrap();
+    let development_fee = burn_amount * development_config.fee_ratio;
+    assert_eq!(beneficiary_balance.amount, development_fee);
+
     // check burned amount
     let burned_amount_query: BurnedAmountResponse = app
         .wrap()
         .query_wasm_smart(burning_addr.clone(), &QueryMsg::BurnedAmount {})
         .unwrap();
-    assert_eq!(burned_amount_query.burned_amount, burn_amount);
+    assert_eq!(
+        burned_amount_query.burned_amount,
+        burn_amount - development_fee
+    );
 
     // contract not hold any burned token
     let burn_token_balance = app
@@ -622,7 +703,8 @@ fn burn_properly() {
                 },
             )
             .unwrap();
-        let expected_reward_amount = burn_amount * reward.reward_ratio;
+        let actual_burned_amount = burn_amount * (Decimal::one() - development_config.fee_ratio);
+        let expected_reward_amount = actual_burned_amount * reward.reward_ratio;
         assert_eq!(reward_token_balance.balance, expected_reward_amount);
     }
 }
@@ -634,7 +716,7 @@ fn fail_to_burn_zero_amount() {
     let burner = "burner";
 
     let mut app = App::default();
-    let setup_res = helpers::setup_multi_test_contracts(&mut app, owner, 1000);
+    let setup_res = helpers::setup_multi_test_contracts(&mut app, owner, 1000, None);
     let burning_addr = setup_res.burning_addr;
 
     // burn
@@ -666,7 +748,16 @@ fn burn_not_enough_rewards() {
     });
 
     let cw20_reward = 0;
-    let setup_res = helpers::setup_multi_test_contracts(&mut app, owner, cw20_reward);
+    let development_config = DevelopmentConfig {
+        fee_ratio: Decimal::percent(2),
+        beneficiary: "beneficiary".to_string(),
+    };
+    let setup_res = helpers::setup_multi_test_contracts(
+        &mut app,
+        owner,
+        cw20_reward,
+        Some(development_config.clone()),
+    );
     let burning_addr = setup_res.burning_addr;
     let reward_list = setup_res.reward_list;
 
@@ -683,12 +774,23 @@ fn burn_not_enough_rewards() {
     )
     .unwrap();
 
+    // check development fee is collected
+    let beneficiary_balance = app
+        .wrap()
+        .query_balance(development_config.beneficiary, "uluna")
+        .unwrap();
+    let development_fee = burn_amount * development_config.fee_ratio;
+    assert_eq!(beneficiary_balance.amount, development_fee);
+
     // check burned amount
     let burned_amount_query: BurnedAmountResponse = app
         .wrap()
         .query_wasm_smart(burning_addr.clone(), &QueryMsg::BurnedAmount {})
         .unwrap();
-    assert_eq!(burned_amount_query.burned_amount, burn_amount);
+    assert_eq!(
+        burned_amount_query.burned_amount,
+        burn_amount - development_fee
+    );
 
     // contract not hold any burned token
     let burn_token_balance = app
@@ -728,14 +830,26 @@ fn burned_amount_should_increase() {
     });
 
     let cw20_reward = 1_000_000_000;
-    let setup_res = helpers::setup_multi_test_contracts(&mut app, owner, cw20_reward);
+    let development_config = DevelopmentConfig {
+        fee_ratio: Decimal::percent(2),
+        beneficiary: "beneficiary".to_string(),
+    };
+    let setup_res = helpers::setup_multi_test_contracts(
+        &mut app,
+        owner,
+        cw20_reward,
+        Some(development_config.clone()),
+    );
     let burning_addr = setup_res.burning_addr;
 
     // burn
     let mut total_burned = Uint128::zero();
+    let mut total_development_fee = Uint128::zero();
     for _ in 0..10 {
         let burn_amount = Uint128::new(1000);
-        total_burned += burn_amount;
+        let development_fee = burn_amount * development_config.fee_ratio;
+        total_burned += burn_amount - development_fee;
+        total_development_fee += development_fee;
 
         app.execute_contract(
             Addr::unchecked(burner),
@@ -752,5 +866,12 @@ fn burned_amount_should_increase() {
             .query_wasm_smart(burning_addr.clone(), &QueryMsg::BurnedAmount {})
             .unwrap();
         assert_eq!(burned_amount_query.burned_amount, total_burned);
+
+        // check development fee is collected
+        let beneficiary_balance = app
+            .wrap()
+            .query_balance(development_config.beneficiary.clone(), "uluna")
+            .unwrap();
+        assert_eq!(beneficiary_balance.amount, total_development_fee);
     }
 }
