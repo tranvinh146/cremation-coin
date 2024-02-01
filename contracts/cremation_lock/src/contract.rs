@@ -1,7 +1,8 @@
 use crate::{error::ContractError, msg::*, state::*};
 
 use cosmwasm_std::{
-    to_binary, Addr, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Uint128, WasmMsg,
+    to_json_binary, Addr, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Uint128,
+    WasmMsg,
 };
 use cw2::set_contract_version;
 use cw20::{BalanceResponse, Cw20ExecuteMsg, Cw20QueryMsg};
@@ -90,7 +91,7 @@ mod execute {
         let res: Response = Response::new()
             .add_message(WasmMsg::Execute {
                 contract_addr: token_address.clone().into(),
-                msg: to_binary(&withdraw_cw20_msg)?,
+                msg: to_json_binary(&withdraw_cw20_msg)?,
                 funds: vec![],
             })
             .add_attribute("action", "withdraw")
@@ -103,10 +104,10 @@ mod execute {
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::LockedTokenAmount { token_address } => {
-            to_binary(&query::locked_token_amount(deps, env, token_address)?)
+            to_json_binary(&query::locked_token_amount(deps, env, token_address)?)
         }
-        QueryMsg::Owner {} => to_binary(&query::owner(deps)?),
-        QueryMsg::UnlockTime {} => to_binary(&query::unlock_time(deps)?),
+        QueryMsg::Owner {} => to_json_binary(&query::owner(deps)?),
+        QueryMsg::UnlockTime {} => to_json_binary(&query::unlock_time(deps)?),
     }
 }
 

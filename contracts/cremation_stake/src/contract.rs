@@ -1,5 +1,5 @@
 use cosmwasm_std::{
-    attr, entry_point, from_binary, to_binary, Addr, Binary, Decimal, Deps, DepsMut, Env,
+    attr, entry_point, from_json, to_json_binary, Addr, Binary, Decimal, Deps, DepsMut, Env,
     MessageInfo, QueryRequest, Response, StdResult, Uint128, WasmMsg, WasmQuery,
 };
 use cw2::set_contract_version;
@@ -40,12 +40,12 @@ pub fn instantiate(
 
     let minter_query = WasmQuery::Smart {
         contract_addr: msg.token_address.to_string(),
-        msg: to_binary(&Cw20QueryMsg::Minter {}).unwrap(),
+        msg: to_json_binary(&Cw20QueryMsg::Minter {}).unwrap(),
     };
     let minter_res: MinterResponse = deps.querier.query(&QueryRequest::Wasm(minter_query))?;
     let token_info_query = WasmQuery::Smart {
         contract_addr: msg.token_address.to_string(),
-        msg: to_binary(&Cw20QueryMsg::TokenInfo {}).unwrap(),
+        msg: to_json_binary(&Cw20QueryMsg::TokenInfo {}).unwrap(),
     };
     let token_info_res: TokenInfoResponse =
         deps.querier.query(&QueryRequest::Wasm(token_info_query))?;
@@ -78,12 +78,12 @@ pub fn execute(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::TotalStaked {} => to_binary(&query::total_staked(deps)?),
-        QueryMsg::Staked { address } => to_binary(&query::staked(deps, address)?),
-        QueryMsg::RewardInfo {} => to_binary(&query::reward_info(deps)?),
-        QueryMsg::CanStake {} => to_binary(&query::can_stake(deps)?),
-        QueryMsg::RemainingRewards {} => to_binary(&query::remaining_rewards(deps)?),
-        QueryMsg::TotalPendingRewards {} => to_binary(&query::total_pending_rewards(deps)?),
+        QueryMsg::TotalStaked {} => to_json_binary(&query::total_staked(deps)?),
+        QueryMsg::Staked { address } => to_json_binary(&query::staked(deps, address)?),
+        QueryMsg::RewardInfo {} => to_json_binary(&query::reward_info(deps)?),
+        QueryMsg::CanStake {} => to_json_binary(&query::can_stake(deps)?),
+        QueryMsg::RemainingRewards {} => to_json_binary(&query::remaining_rewards(deps)?),
+        QueryMsg::TotalPendingRewards {} => to_json_binary(&query::total_pending_rewards(deps)?),
     }
 }
 
@@ -108,7 +108,7 @@ pub mod execute {
             return Err(ContractError::InvalidStakeAmount {});
         }
 
-        match from_binary(&cw20_msg.msg)? {
+        match from_json(&cw20_msg.msg)? {
             Cw20HookMsg::Stake { staking_period } => {
                 let is_staked = STAKE.has(deps.storage, &sender);
                 if is_staked {
@@ -163,7 +163,7 @@ pub mod execute {
 
                 let mut messages = vec![WasmMsg::Execute {
                     contract_addr: token_address.to_string(),
-                    msg: to_binary(&Cw20ExecuteMsg::Transfer {
+                    msg: to_json_binary(&Cw20ExecuteMsg::Transfer {
                         recipient: sender.to_string(),
                         amount: staked.staked_amount,
                     })?,
@@ -191,7 +191,7 @@ pub mod execute {
                     };
                     messages.push(WasmMsg::Execute {
                         contract_addr: token_address.to_string(),
-                        msg: to_binary(&mint_reward_msg).unwrap(),
+                        msg: to_json_binary(&mint_reward_msg).unwrap(),
                         funds: vec![],
                     });
                     attrs.push(attr("reward", reward));

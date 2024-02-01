@@ -1,7 +1,7 @@
 use cosmwasm_std::{
-    from_binary,
+    from_json,
     testing::{mock_dependencies, mock_env, mock_info, MockQuerier},
-    to_binary, Addr, ContractResult, SystemResult, Uint128, WasmQuery,
+    to_json_binary, Addr, ContractResult, SystemResult, Uint128, WasmQuery,
 };
 use cw20::{BalanceResponse as Cw20BalanceResponse, Cw20QueryMsg};
 
@@ -25,12 +25,12 @@ fn proper_initialization() {
 
     // check owner
     let owner_query = query(deps.as_ref(), env.clone(), QueryMsg::Owner {}).unwrap();
-    let owner_res: OwnerResponse = from_binary(&owner_query).unwrap();
+    let owner_res: OwnerResponse = from_json(&owner_query).unwrap();
     assert_eq!(owner_res.owner, owner);
 
     // check unlock_time
     let unlock_time_query = query(deps.as_ref(), env.clone(), QueryMsg::UnlockTime {}).unwrap();
-    let unlock_time_res: UnlockTimeResponse = from_binary(&unlock_time_query).unwrap();
+    let unlock_time_res: UnlockTimeResponse = from_json(&unlock_time_query).unwrap();
     assert_eq!(unlock_time_res.unlock_time, env.block.time.plus_days(365));
 }
 
@@ -64,7 +64,7 @@ fn update_owner() {
 
     // check new owner
     let owner_query = query(deps.as_ref(), mock_env(), QueryMsg::Owner {}).unwrap();
-    let owner_res: OwnerResponse = from_binary(&owner_query).unwrap();
+    let owner_res: OwnerResponse = from_json(&owner_query).unwrap();
     assert_eq!(owner_res.owner, new_owner);
 }
 
@@ -107,14 +107,14 @@ fn withdraw() {
     custom_querier.update_wasm(|query| match query {
         WasmQuery::Smart { contract_addr, msg } => {
             assert_eq!(contract_addr, "token_addr");
-            match from_binary(msg).unwrap() {
+            match from_json(msg).unwrap() {
                 Cw20QueryMsg::Balance { address } => {
                     assert_eq!(address, "lock_contract_addr");
 
                     let balance = Uint128::new(100_000);
 
                     SystemResult::Ok(ContractResult::Ok(
-                        to_binary(&Cw20BalanceResponse { balance }).unwrap(),
+                        to_json_binary(&Cw20BalanceResponse { balance }).unwrap(),
                     ))
                 }
                 _ => panic!("DO NOT ENTER HERE"),

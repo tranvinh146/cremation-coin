@@ -1,11 +1,16 @@
 use cosmwasm_std::{entry_point, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult};
 use error::ContractError;
-use msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
+use msg::*;
 
 pub mod contract;
 pub mod error;
 pub mod msg;
 pub mod state;
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> StdResult<Response> {
+    Ok(Response::default())
+}
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(

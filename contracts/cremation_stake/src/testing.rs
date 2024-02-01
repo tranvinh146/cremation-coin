@@ -1,4 +1,4 @@
-use cosmwasm_std::{to_binary, Addr, Uint128};
+use cosmwasm_std::{to_json_binary, Addr, Uint128};
 use cw20::{BalanceResponse, Cw20Coin, MinterResponse};
 use cw20_base::{
     contract::{execute as cw20_execute, instantiate as cw20_instantiate, query as cw20_query},
@@ -199,7 +199,7 @@ fn stake_token() {
         &Cw20ExecuteMsg::Send {
             contract: staking_address.to_string(),
             amount: Uint128::new(10_000),
-            msg: to_binary(&Cw20HookMsg::Stake {
+            msg: to_json_binary(&Cw20HookMsg::Stake {
                 staking_period: staking_period.clone(),
             })
             .unwrap(),
@@ -296,7 +296,7 @@ fn unstake_token_without_reward() {
         &Cw20ExecuteMsg::Send {
             contract: staking_address.to_string(),
             amount: Uint128::new(10_000),
-            msg: to_binary(&Cw20HookMsg::Stake { staking_period }).unwrap(),
+            msg: to_json_binary(&Cw20HookMsg::Stake { staking_period }).unwrap(),
         },
         &[],
     )
@@ -386,7 +386,7 @@ fn unstake_token_with_reward() {
         &Cw20ExecuteMsg::Send {
             contract: staking_address.to_string(),
             amount: Uint128::new(10_000),
-            msg: to_binary(&Cw20HookMsg::Stake {
+            msg: to_json_binary(&Cw20HookMsg::Stake {
                 staking_period: staking_period.clone(),
             })
             .unwrap(),
@@ -495,7 +495,7 @@ fn error_when_insufficient_reward() {
             &Cw20ExecuteMsg::Send {
                 contract: staking_address.to_string(),
                 amount: INIT_AMOUNT,
-                msg: to_binary(&Cw20HookMsg::Stake { staking_period }).unwrap(),
+                msg: to_json_binary(&Cw20HookMsg::Stake { staking_period }).unwrap(),
             },
             &[],
         )
@@ -537,7 +537,7 @@ fn unstake_and_stake_again() {
         &Cw20ExecuteMsg::Send {
             contract: staking_address.to_string(),
             amount: Uint128::new(10_000),
-            msg: to_binary(&Cw20HookMsg::Stake { staking_period }).unwrap(),
+            msg: to_json_binary(&Cw20HookMsg::Stake { staking_period }).unwrap(),
         },
         &[],
     )
@@ -560,7 +560,7 @@ fn unstake_and_stake_again() {
         &Cw20ExecuteMsg::Send {
             contract: staking_address.to_string(),
             amount: Uint128::new(100_000),
-            msg: to_binary(&Cw20HookMsg::Stake {
+            msg: to_json_binary(&Cw20HookMsg::Stake {
                 staking_period: staking_period.clone(),
             })
             .unwrap(),
@@ -676,7 +676,7 @@ fn multiple_staker() {
             &Cw20ExecuteMsg::Send {
                 contract: staking_address.to_string(),
                 amount: staker_balances[index],
-                msg: to_binary(&Cw20HookMsg::Stake {
+                msg: to_json_binary(&Cw20HookMsg::Stake {
                     staking_period: staking_periods[index].clone(),
                 })
                 .unwrap(),

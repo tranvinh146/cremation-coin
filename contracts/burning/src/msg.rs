@@ -19,6 +19,9 @@ pub struct DevelopmentConfig {
 }
 
 #[cw_serde]
+pub struct MigrateMsg {}
+
+#[cw_serde]
 pub struct InstantiateMsg {
     pub owner: String,
     pub development_config: DevelopmentConfig,
@@ -49,8 +52,8 @@ pub enum QueryMsg {
     Owner {},
     #[returns(DevelopmentConfigResponse)]
     DevelopmentConfig {},
-    #[returns(RewardWhiteListResponse)]
-    RewardWhiteList {},
+    #[returns(RewardWhitelistResponse)]
+    RewardWhitelist {},
     #[returns(BurnedAmountResponse)]
     BurnedAmount {},
 }
@@ -64,7 +67,7 @@ pub struct OwnerResponse {
 pub struct DevelopmentConfigResponse(pub DevelopmentConfig);
 
 #[cw_serde]
-pub struct RewardWhiteListResponse {
+pub struct RewardWhitelistResponse {
     pub reward_whitelist: Vec<RewardInfo>,
 }
 

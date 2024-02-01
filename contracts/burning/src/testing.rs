@@ -1,7 +1,5 @@
-use std::time::SystemTime;
-
 use cosmwasm_std::{
-    coin, from_binary,
+    coin, from_json,
     testing::{mock_dependencies, mock_env, mock_info},
     Addr, Coin, Decimal, Uint128,
 };
@@ -10,6 +8,7 @@ use cw20_base::contract::{
     execute as cw20_execute, instantiate as cw20_instantiate, query as cw20_query,
 };
 use cw_multi_test::{App, ContractWrapper, Executor};
+use std::time::SystemTime;
 
 use crate::{error::ContractError, execute, instantiate, msg::*, query};
 
@@ -165,23 +164,22 @@ fn init_properly() {
     instantiate(deps.as_mut(), env, info, init_msg).unwrap();
 
     let owner_query = query(deps.as_ref(), mock_env(), QueryMsg::Owner {}).unwrap();
-    let owner_res: OwnerResponse = from_binary(&owner_query).unwrap();
+    let owner_res: OwnerResponse = from_json(&owner_query).unwrap();
     assert_eq!(owner_res.owner, owner.to_string());
 
     let reward_whitelist_query =
-        query(deps.as_ref(), mock_env(), QueryMsg::RewardWhiteList {}).unwrap();
-    let reward_whitelist_res: RewardWhiteListResponse =
-        from_binary(&reward_whitelist_query).unwrap();
+        query(deps.as_ref(), mock_env(), QueryMsg::RewardWhitelist {}).unwrap();
+    let reward_whitelist_res: RewardWhitelistResponse = from_json(&reward_whitelist_query).unwrap();
     assert_eq!(reward_whitelist_res.reward_whitelist.len(), 0);
 
     let burned_amount_query = query(deps.as_ref(), mock_env(), QueryMsg::BurnedAmount {}).unwrap();
-    let burned_amount_res: BurnedAmountResponse = from_binary(&burned_amount_query).unwrap();
+    let burned_amount_res: BurnedAmountResponse = from_json(&burned_amount_query).unwrap();
     assert_eq!(burned_amount_res.burned_amount, Uint128::zero());
 
     let development_config_query =
         query(deps.as_ref(), mock_env(), QueryMsg::DevelopmentConfig {}).unwrap();
     let development_config_res: DevelopmentConfigResponse =
-        from_binary(&development_config_query).unwrap();
+        from_json(&development_config_query).unwrap();
     assert_eq!(development_config_res.0, development_config);
 }
 
@@ -224,9 +222,8 @@ fn add_to_reward_whitelist_properly() {
     assert_eq!(res.attributes[2].value, reward_ratio.to_string());
 
     let reward_whitelist_query =
-        query(deps.as_ref(), mock_env(), QueryMsg::RewardWhiteList {}).unwrap();
-    let reward_whitelist_res: RewardWhiteListResponse =
-        from_binary(&reward_whitelist_query).unwrap();
+        query(deps.as_ref(), mock_env(), QueryMsg::RewardWhitelist {}).unwrap();
+    let reward_whitelist_res: RewardWhitelistResponse = from_json(&reward_whitelist_query).unwrap();
     assert_eq!(reward_whitelist_res.reward_whitelist.len(), 1);
     assert_eq!(
         reward_whitelist_res.reward_whitelist[0].token,
@@ -380,9 +377,8 @@ fn remove_from_reward_whitelist_properly() {
     assert_eq!(res.attributes[1].value, token);
 
     let reward_whitelist_query =
-        query(deps.as_ref(), mock_env(), QueryMsg::RewardWhiteList {}).unwrap();
-    let reward_whitelist_res: RewardWhiteListResponse =
-        from_binary(&reward_whitelist_query).unwrap();
+        query(deps.as_ref(), mock_env(), QueryMsg::RewardWhitelist {}).unwrap();
+    let reward_whitelist_res: RewardWhitelistResponse = from_json(&reward_whitelist_query).unwrap();
     assert_eq!(
         reward_whitelist_res.reward_whitelist.len(),
         (reward_list_len - 1) as usize
@@ -499,9 +495,8 @@ fn update_reward_info_properly() {
     assert_eq!(3, res.attributes.len());
 
     let reward_whitelist_query =
-        query(deps.as_ref(), mock_env(), QueryMsg::RewardWhiteList {}).unwrap();
-    let reward_whitelist_res: RewardWhiteListResponse =
-        from_binary(&reward_whitelist_query).unwrap();
+        query(deps.as_ref(), mock_env(), QueryMsg::RewardWhitelist {}).unwrap();
+    let reward_whitelist_res: RewardWhitelistResponse = from_json(&reward_whitelist_query).unwrap();
     assert_eq!(
         reward_whitelist_res.reward_whitelist.len(),
         reward_list_len as usize

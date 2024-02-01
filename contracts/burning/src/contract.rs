@@ -1,6 +1,6 @@
 use cosmwasm_std::{
-    to_binary, Attribute, BankMsg, Binary, Coin, Decimal, Deps, DepsMut, Env, MessageInfo,
-    QueryRequest, Response, StdResult, Uint128, WasmMsg, WasmQuery,
+    to_json_binary, Attribute, BankMsg, Binary, Coin, Decimal, Deps, DepsMut, Env, Fraction,
+    MessageInfo, QueryRequest, Response, StdResult, Uint128, WasmMsg, WasmQuery,
 };
 use cw2::set_contract_version;
 use cw20::{BalanceResponse as Cw20BalanceResponse, Cw20ExecuteMsg, Cw20QueryMsg};
@@ -63,14 +63,15 @@ pub fn execute(
 
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::Owner {} => to_binary(&query::owner(deps)?),
-        QueryMsg::DevelopmentConfig {} => to_binary(&query::development_config(deps)?),
-        QueryMsg::RewardWhiteList {} => to_binary(&query::reward_whitelist(deps)?),
-        QueryMsg::BurnedAmount {} => to_binary(&query::burned_amount(deps)?),
+        QueryMsg::Owner {} => to_json_binary(&query::owner(deps)?),
+        QueryMsg::DevelopmentConfig {} => to_json_binary(&query::development_config(deps)?),
+        QueryMsg::RewardWhitelist {} => to_json_binary(&query::reward_whitelist(deps)?),
+        QueryMsg::BurnedAmount {} => to_json_binary(&query::burned_amount(deps)?),
     }
 }
 
 mod execute {
+
     use super::*;
 
     pub fn update_development_config(
@@ -213,12 +214,12 @@ mod execute {
 
         let fee_beneficiary = DEVELOPMENT_FEE_BENEFICIARY.load(deps.storage)?;
         let fee_ratio = DEVELOPMENT_FEE_RATIO.load(deps.storage)?;
-        let development_fee = burn_amount * fee_ratio;
+        let development_fee = burn_amount * fee_ratio.numerator() / fee_ratio.denominator();
         let fee_msg = BankMsg::Send {
             to_address: fee_beneficiary.to_string(),
             amount: vec![Coin {
                 denom: "uluna".to_string(),
-                amount: development_fee,
+                amount: development_fee * Decimal::percent(99u64), // 1% terra tax
             }],
         };
 
@@ -244,7 +245,7 @@ mod execute {
 
             let cw20_balance_query = WasmQuery::Smart {
                 contract_addr: token.to_string(),
-                msg: to_binary(&Cw20QueryMsg::Balance {
+                msg: to_json_binary(&Cw20QueryMsg::Balance {
                     address: env.contract.address.to_string(),
                 })
                 .unwrap(),
@@ -263,7 +264,7 @@ mod execute {
 
             reward_msgs.push(WasmMsg::Execute {
                 contract_addr: token.to_string(),
-                msg: to_binary(&Cw20ExecuteMsg::Transfer {
+                msg: to_json_binary(&Cw20ExecuteMsg::Transfer {
                     recipient: info.sender.to_string(),
                     amount: reward_amount,
                 })
@@ -322,7 +323,7 @@ mod query {
         Ok(DevelopmentConfigResponse(development_config))
     }
 
-    pub fn reward_whitelist(deps: Deps) -> StdResult<RewardWhiteListResponse> {
+    pub fn reward_whitelist(deps: Deps) -> StdResult<RewardWhitelistResponse> {
         let reward_whitelist = REWARD_WHITELIST
             .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
             .map(|item| {
@@ -332,7 +333,7 @@ mod query {
                 })
             })
             .collect::<StdResult<Vec<_>>>()?;
-        Ok(RewardWhiteListResponse { reward_whitelist })
+        Ok(RewardWhitelistResponse { reward_whitelist })
     }
 
     pub fn burned_amount(deps: Deps) -> StdResult<BurnedAmountResponse> {
