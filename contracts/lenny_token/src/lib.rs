@@ -1,4 +1,5 @@
 use cosmwasm_std::{entry_point, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult};
+use cremation_token::contract::query as cremation_token_query;
 use cw20_base::ContractError;
 use msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
 
@@ -23,7 +24,7 @@ pub fn instantiate(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
-    contract::query(deps, env, msg)
+    cremation_token_query(deps, env, msg)
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

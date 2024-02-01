@@ -15,6 +15,7 @@ library = []
 cw2 = "1.0.1"
 cw20 = "1.0.1"
 cw20-base = { version = "1.0.1", features = ["library"] }
+cremation-token = { path = "../cremation_token", features = ["library"] }
 classic_terraswap = "2.7.0"
 cw-storage-plus = "1.0.0"
 cosmwasm-std = "1.0.0"
