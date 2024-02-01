@@ -1,3 +1,4 @@
+use classic_terraswap::asset::AssetInfo;
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{Addr, Binary, Decimal, Uint128};
 use cw20::{Expiration, Logo};
@@ -6,20 +7,49 @@ use cw20_base::msg::InstantiateMsg as Cw20InstantiateMsg;
 use crate::state::{FractionFormat, TaxInfo};
 
 #[cw_serde]
+pub struct MigrateMsg {}
+
+#[cw_serde]
 pub enum Dex {
     Terraswap,
     Terraport,
 }
 
 #[cw_serde]
-pub struct MigrateMsg {
-    // pub terraport_router: Addr,
-    // pub terraport_pairs: Vec<Addr>,
+pub enum SwapOperation {
+    NativeSwap {
+        offer_denom: String,
+        ask_denom: String,
+    },
+    TerraSwap {
+        offer_asset_info: AssetInfo,
+        ask_asset_info: AssetInfo,
+    },
+    TerraPort {
+        offer_asset_info: AssetInfo,
+        ask_asset_info: AssetInfo,
+    },
+    Loop {
+        offer_asset_info: AssetInfo,
+        ask_asset_info: AssetInfo,
+    },
+    Astroport {
+        offer_asset_info: AssetInfo,
+        ask_asset_info: AssetInfo,
+    },
+}
+
+#[cw_serde]
+pub struct ExecuteSwapOperations {
+    pub operations: Vec<SwapOperation>,
+    pub minimum_receive: Option<Uint128>,
+    pub to: Option<String>,
+    pub deadline: Option<u64>,
 }
 
 #[cw_serde]
 pub struct InstantiateMsg {
-    pub owner: Addr,
+    pub owner: String,
     pub tax_info: TaxInfo,
     pub cw20_instantiate_msg: Cw20InstantiateMsg,
 }
@@ -27,19 +57,21 @@ pub struct InstantiateMsg {
 #[cw_serde]
 pub enum ExecuteMsg {
     // ======= Extend executes for cremation-coin =======
-    SetConfig {
-        terraswap_router: Addr,
-        terraswap_pair: Addr,
+    SetDexConfigs {
+        terraswap_router: String,
+        terraswap_pairs: Vec<String>,
+        terraport_router: String,
+        terraport_pairs: Vec<String>,
     },
     UpdateOwner {
-        new_owner: Addr,
+        new_owner: String,
     },
     AddNewPairs {
         dex: Dex,
-        pair_addresses: Vec<Addr>,
+        pair_addresses: Vec<String>,
     },
     UpdateCollectTaxAddress {
-        new_collect_tax_addr: Addr,
+        new_collect_tax_addr: String,
     },
     UpdateTaxInfo {
         buy_tax: Option<FractionFormat>,
@@ -47,7 +79,7 @@ pub enum ExecuteMsg {
         transfer_tax: Option<FractionFormat>,
     },
     SetTaxFreeAddress {
-        address: Addr,
+        address: String,
         tax_free: bool,
     },
 
@@ -127,14 +159,6 @@ pub enum ExecuteMsg {
         /// The address (if any) who can update this data structure
         marketing: Option<String>,
     },
-    InitializeMarketing {
-        /// A URL pointing to the project behind this token.
-        project: Option<String>,
-        /// A longer description of the token and it's utility. Designed for tooltips or such
-        description: Option<String>,
-        /// The address (if any) who can update this data structure
-        marketing: Option<String>,
-    },
     /// If set as the "marketing" role on the contract, upload a new URL, SVG, or PNG for the token
     UploadLogo(Logo),
 }
@@ -143,11 +167,6 @@ pub enum ExecuteMsg {
 #[derive(QueryResponses)]
 pub enum QueryMsg {
     // ======= Extended queries from cremation-coin =======
-    /// DEPRECATED: Returns the current config of the contract.
-    /// - terraswap_router: Terraswap Router contract address
-    /// - terraswap_pair: Terraswap Pair contract address
-    #[returns(ConfigResponse)]
-    Config {},
     /// Returns the dex contracts.
     /// - terraswap_router: Terraswap Router contract address
     /// - terraswap_pair: Terraswap Pair contract address
@@ -216,11 +235,6 @@ pub enum QueryMsg {
     /// contract.
     #[returns(cw20::DownloadLogoResponse)]
     DownloadLogo {},
-}
-#[cw_serde]
-pub struct ConfigResponse {
-    pub terraswap_router: Addr,
-    pub terraswap_pair: Addr,
 }
 
 #[cw_serde]

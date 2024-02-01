@@ -1,24 +1,12 @@
+#[allow(unused_imports)]
 use cosmwasm_std::{entry_point, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult};
 use cw20_base::ContractError;
 use msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
 
 pub mod contract;
+pub mod helper;
 pub mod msg;
 pub mod state;
-
-// #[cfg_attr(not(feature = "library"), entry_point)]
-// pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> StdResult<Response> {
-//     let config = state::CONFIG.load(deps.storage)?;
-//     let dex_configs = state::DexConfigs {
-//         terraswap_pairs: vec![config.terraswap_pair],
-//         terraswap_router: config.terraswap_router,
-//         terraport_pairs: msg.terraport_pairs,
-//         terraport_router: msg.terraport_router,
-//     };
-//     state::DEX_CONFIGS.save(deps.storage, &dex_configs)?;
-
-//     Ok(Response::default())
-// }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> StdResult<Response> {
