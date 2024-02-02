@@ -17,4 +17,6 @@ pub enum ContractError {
     ZeroAmount {},
     #[error("Zero ratio")]
     ZeroRatio {},
+    #[error("Invalid Reply Message")]
+    InvalidReplyMsg {},
 }

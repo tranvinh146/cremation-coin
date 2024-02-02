@@ -1,15 +1,20 @@
 use cosmwasm_std::{
-    to_json_binary, Attribute, BankMsg, Binary, Coin, Decimal, Deps, DepsMut, Env, Fraction,
-    MessageInfo, QueryRequest, Response, StdResult, Uint128, WasmMsg, WasmQuery,
+    from_json, to_json_binary, Attribute, BankMsg, Binary, Coin, Decimal, Deps, DepsMut, Env,
+    Fraction, MessageInfo, QueryRequest, Reply, Response, StdResult, SubMsg, Uint128, WasmMsg,
+    WasmQuery,
 };
+use cremation_token::msg::{AssetInfo, RouterExecuteMsg, SwapOperation};
 use cw2::set_contract_version;
-use cw20::{BalanceResponse as Cw20BalanceResponse, Cw20ExecuteMsg, Cw20QueryMsg};
+use cw20::{BalanceResponse as Cw20BalanceResponse, Cw20ExecuteMsg, Cw20QueryMsg, Cw20ReceiveMsg};
 
 use crate::{error::ContractError, msg::*, state::OWNER, state::*};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "burning";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+const SWAP_REPLY_ID: u64 = 1;
+pub const LUNC_TAX: Decimal = Decimal::permille(5);
 
 pub fn instantiate(
     deps: DepsMut,
@@ -57,7 +62,22 @@ pub fn execute(
         ExecuteMsg::UpdateRewardInfo { reward_info } => {
             execute::update_reward_info(deps, env, info, reward_info)
         }
-        ExecuteMsg::Burn {} => execute::burn(deps, env, info),
+        ExecuteMsg::Burn {} => {
+            // check lunc in funds
+            let funds = info.funds.clone();
+            let mut burn_amount = Uint128::zero();
+            for coin in funds {
+                if coin.denom == "uluna" {
+                    burn_amount = coin.amount;
+                    break;
+                }
+            }
+
+            execute::burn(deps, env, info.sender.to_string(), burn_amount)
+        }
+        ExecuteMsg::SetSwapRouter { router } => execute::set_swap_router(deps, env, info, router),
+        ExecuteMsg::SwapAndBurn { denom } => execute::swap_and_burn(deps, env, info, denom),
+        ExecuteMsg::Receive(cw20_msg) => execute::receive_cw20(deps, env, info, cw20_msg),
     }
 }
 
@@ -67,12 +87,46 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::DevelopmentConfig {} => to_json_binary(&query::development_config(deps)?),
         QueryMsg::RewardWhitelist {} => to_json_binary(&query::reward_whitelist(deps)?),
         QueryMsg::BurnedAmount {} => to_json_binary(&query::burned_amount(deps)?),
+        QueryMsg::SwapRouter {} => to_json_binary(&query::swap_router(deps)?),
     }
 }
 
-mod execute {
+pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractError> {
+    if msg.id != SWAP_REPLY_ID {
+        return Err(ContractError::InvalidReplyMsg {});
+    }
 
+    let burn_amount = deps
+        .querier
+        .query_balance(&env.contract.address, "uluna")
+        .unwrap()
+        .amount;
+    let recipient: String = from_json(msg.result.unwrap().data.unwrap()).unwrap();
+    execute::burn(deps, env, recipient, burn_amount)
+}
+
+mod execute {
     use super::*;
+
+    pub fn set_swap_router(
+        deps: DepsMut,
+        _env: Env,
+        info: MessageInfo,
+        router: String,
+    ) -> Result<Response, ContractError> {
+        let owner = OWNER.load(deps.storage)?;
+        if owner != info.sender {
+            return Err(ContractError::Unauthorized {});
+        }
+        let router = deps.api.addr_validate(&router)?;
+
+        SWAP_ROUTER.save(deps.storage, &router)?;
+
+        let res = Response::new()
+            .add_attribute("action", "set_swap_router")
+            .add_attribute("router", router);
+        Ok(res)
+    }
 
     pub fn update_development_config(
         deps: DepsMut,
@@ -198,16 +252,12 @@ mod execute {
         Ok(res)
     }
 
-    pub fn burn(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, ContractError> {
-        // check lunc in funds
-        let funds = info.funds.clone();
-        let mut burn_amount = Uint128::zero();
-        for coin in funds {
-            if coin.denom == "uluna" {
-                burn_amount = coin.amount;
-                break;
-            }
-        }
+    pub fn burn(
+        deps: DepsMut,
+        env: Env,
+        recipient: String,
+        burn_amount: Uint128,
+    ) -> Result<Response, ContractError> {
         if burn_amount.is_zero() {
             return Err(ContractError::ZeroAmount {});
         }
@@ -219,11 +269,12 @@ mod execute {
             to_address: fee_beneficiary.to_string(),
             amount: vec![Coin {
                 denom: "uluna".to_string(),
-                amount: development_fee * Decimal::percent(99u64), // 1% terra tax
+                amount: development_fee,
             }],
         };
 
-        let actual_burn_amount = burn_amount - development_fee;
+        let send_tax = development_fee * LUNC_TAX;
+        let actual_burn_amount = burn_amount - (development_fee + send_tax);
 
         let rewards = REWARD_WHITELIST
             .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
@@ -265,7 +316,7 @@ mod execute {
             reward_msgs.push(WasmMsg::Execute {
                 contract_addr: token.to_string(),
                 msg: to_json_binary(&Cw20ExecuteMsg::Transfer {
-                    recipient: info.sender.to_string(),
+                    recipient: recipient.clone(),
                     amount: reward_amount,
                 })
                 .unwrap(),
@@ -294,14 +345,122 @@ mod execute {
         };
 
         let res = Response::new()
-            .add_message(burn_msg)
             .add_message(fee_msg)
+            .add_message(burn_msg)
             .add_messages(reward_msgs)
             .add_attribute("action", "burn")
-            .add_attribute("burn_amount", actual_burn_amount)
             .add_attribute("development_fee", development_fee)
+            .add_attribute("burn_amount", actual_burn_amount)
             .add_attributes(attrs);
         Ok(res)
+    }
+
+    pub fn swap_and_burn(
+        deps: DepsMut,
+        env: Env,
+        info: MessageInfo,
+        denom: String,
+    ) -> Result<Response, ContractError> {
+        let funds = info.funds.clone();
+        let mut swap_amount = Uint128::zero();
+        for coin in funds {
+            if coin.denom == denom {
+                swap_amount = coin.amount;
+                break;
+            }
+        }
+
+        let swap_operations = RouterExecuteMsg::ExecuteSwapOperations {
+            operations: vec![SwapOperation::TerraPort {
+                offer_asset_info: AssetInfo::NativeToken {
+                    denom: denom.clone(),
+                },
+                ask_asset_info: AssetInfo::NativeToken {
+                    denom: "uluna".to_string(),
+                },
+            }],
+            to: Some(env.contract.address.to_string()),
+            minimum_receive: None,
+            deadline: None,
+        };
+
+        let swap_router = SWAP_ROUTER.load(deps.storage)?;
+        let swap_wasm_msg = WasmMsg::Execute {
+            contract_addr: swap_router.to_string(),
+            msg: to_json_binary(&swap_operations).unwrap(),
+            funds: vec![Coin {
+                denom,
+                amount: swap_amount,
+            }],
+        };
+        let swap_submsg = SubMsg::reply_on_success(swap_wasm_msg, SWAP_REPLY_ID);
+        let recipient = info.sender.to_string();
+
+        Ok(Response::new()
+            .set_data(recipient.as_bytes())
+            .add_submessage(swap_submsg))
+    }
+
+    pub fn receive_cw20(
+        deps: DepsMut,
+        _env: Env,
+        info: MessageInfo,
+        cw20_msg: Cw20ReceiveMsg,
+    ) -> Result<Response, ContractError> {
+        let token_in = info.sender;
+        let amount = cw20_msg.amount;
+        let recipient = cw20_msg.sender;
+
+        match from_json(&cw20_msg.msg) {
+            Ok(Cw20HookMsg::SwapAndBurn { swap_paths }) => {
+                let mut operations = vec![];
+                for i in 0..=swap_paths.len() {
+                    let offer_asset_info = if i == 0 {
+                        AssetInfo::Token {
+                            contract_addr: token_in.to_string(),
+                        }
+                    } else {
+                        swap_paths[i - 1].clone()
+                    };
+
+                    let ask_asset_info = if i == swap_paths.len() {
+                        AssetInfo::NativeToken {
+                            denom: "uluna".to_string(),
+                        }
+                    } else {
+                        swap_paths[i].clone()
+                    };
+
+                    operations.push(SwapOperation::TerraPort {
+                        offer_asset_info,
+                        ask_asset_info,
+                    });
+                }
+                let swap_operations = RouterExecuteMsg::ExecuteSwapOperations {
+                    operations,
+                    to: None,
+                    minimum_receive: None,
+                    deadline: None,
+                };
+                let swap_router = SWAP_ROUTER.load(deps.storage)?;
+
+                let cw20_send_msg = WasmMsg::Execute {
+                    contract_addr: token_in.to_string(),
+                    msg: to_json_binary(&Cw20ExecuteMsg::Send {
+                        contract: swap_router.to_string(),
+                        amount,
+                        msg: to_json_binary(&swap_operations).unwrap(),
+                    })?,
+                    funds: vec![],
+                };
+                let cw20_send_submsg = SubMsg::reply_on_success(cw20_send_msg, SWAP_REPLY_ID);
+
+                Ok(Response::new()
+                    .set_data(recipient.as_bytes())
+                    .add_submessage(cw20_send_submsg))
+            }
+            Err(err) => Err(ContractError::StdError(err)),
+        }
     }
 }
 
@@ -339,5 +498,15 @@ mod query {
     pub fn burned_amount(deps: Deps) -> StdResult<BurnedAmountResponse> {
         let burned_amount = BURNED_AMOUNT.load(deps.storage)?;
         Ok(BurnedAmountResponse { burned_amount })
+    }
+
+    pub fn swap_router(deps: Deps) -> StdResult<SwapRouterResponse> {
+        let swap_router = SWAP_ROUTER.load(deps.storage);
+        match swap_router {
+            Ok(router) => Ok(SwapRouterResponse {
+                swap_router: Some(router),
+            }),
+            Err(_) => Ok(SwapRouterResponse { swap_router: None }),
+        }
     }
 }

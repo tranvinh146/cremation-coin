@@ -1,5 +1,7 @@
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{Addr, Decimal, Uint128};
+use cremation_token::msg::AssetInfo;
+use cw20::Cw20ReceiveMsg;
 
 #[cw_serde]
 pub struct RewardInfo {
@@ -9,7 +11,7 @@ pub struct RewardInfo {
 
 #[cw_serde]
 pub enum Cw20HookMsg {
-    Burn { amount: Uint128 },
+    SwapAndBurn { swap_paths: Vec<AssetInfo> },
 }
 
 #[cw_serde]
@@ -43,6 +45,13 @@ pub enum ExecuteMsg {
         reward_info: RewardInfo,
     },
     Burn {},
+    SetSwapRouter {
+        router: String,
+    },
+    SwapAndBurn {
+        denom: String,
+    },
+    Receive(Cw20ReceiveMsg),
 }
 
 #[cw_serde]
@@ -56,6 +65,8 @@ pub enum QueryMsg {
     RewardWhitelist {},
     #[returns(BurnedAmountResponse)]
     BurnedAmount {},
+    #[returns(SwapRouterResponse)]
+    SwapRouter {},
 }
 
 #[cw_serde]
@@ -74,4 +85,9 @@ pub struct RewardWhitelistResponse {
 #[cw_serde]
 pub struct BurnedAmountResponse {
     pub burned_amount: Uint128,
+}
+
+#[cw_serde]
+pub struct SwapRouterResponse {
+    pub swap_router: Option<Addr>,
 }

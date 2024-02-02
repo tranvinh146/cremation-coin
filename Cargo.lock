@@ -82,6 +82,7 @@ version = "0.1.0"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
+ "cremation-token",
  "cw-multi-test",
  "cw-storage-plus 1.2.0",
  "cw2 1.1.2",
@@ -707,7 +708,6 @@ dependencies = [
 name = "lenny-token"
 version = "1.0.0"
 dependencies = [
- "classic_terraswap",
  "cosmwasm-schema",
  "cosmwasm-std",
  "cremation-token",

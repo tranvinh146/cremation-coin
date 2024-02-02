@@ -14,6 +14,7 @@ library = []
 [dependencies]
 cw2 = "1.0.1"
 cw20 = "1.0.1"
+cremation-token = { path = "../cremation_token", features = ["library"] }
 cw-storage-plus = "1.0.0"
 cosmwasm-std = "1.0.0"
 cosmwasm-schema = "1.0.4"
