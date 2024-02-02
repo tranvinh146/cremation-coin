@@ -1,4 +1,3 @@
-use classic_terraswap::asset::AssetInfo;
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{Addr, Binary, Decimal, Uint128};
 use cw20::{Expiration, Logo};
@@ -6,6 +5,7 @@ use cw20_base::msg::InstantiateMsg as Cw20InstantiateMsg;
 
 use crate::state::{FractionFormat, TaxInfo};
 
+pub use classic_terraswap::asset::AssetInfo;
 #[cw_serde]
 pub struct MigrateMsg {}
 
@@ -40,11 +40,14 @@ pub enum SwapOperation {
 }
 
 #[cw_serde]
-pub struct ExecuteSwapOperations {
-    pub operations: Vec<SwapOperation>,
-    pub minimum_receive: Option<Uint128>,
-    pub to: Option<String>,
-    pub deadline: Option<u64>,
+pub enum RouterExecuteMsg {
+    /// Execute multiple BuyOperation
+    ExecuteSwapOperations {
+        operations: Vec<SwapOperation>,
+        minimum_receive: Option<Uint128>,
+        to: Option<String>,
+        deadline: Option<u64>,
+    },
 }
 
 #[cw_serde]

@@ -611,7 +611,7 @@ pub mod execute {
             owner: collect_tax_addr.to_string(),
             contract: router.to_string(),
             amount: collected_tax_amount,
-            msg: to_json_binary(&ExecuteSwapOperations {
+            msg: to_json_binary(&RouterExecuteMsg::ExecuteSwapOperations {
                 operations: vec![swap_operation],
                 to: Some(collect_tax_addr.to_string()),
                 minimum_receive: None,

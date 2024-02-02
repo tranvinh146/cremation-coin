@@ -1,13 +1,12 @@
 use crate::{msg::*, state::*};
 
-use classic_terraswap::asset::AssetInfo;
 use cosmwasm_std::{
     attr, to_json_binary, Addr, Binary, CosmosMsg, DepsMut, Env, MessageInfo, Response, Uint128,
     WasmMsg,
 };
 use cremation_token::{
     contract::execute as cremation_token_execute,
-    msg::{ExecuteSwapOperations, SwapOperation},
+    msg::{AssetInfo, SwapOperation},
     state::*,
 };
 
@@ -155,6 +154,7 @@ pub mod execute {
     use cremation_token::{
         contract::execute::{compute_tax, update_balance_with_tax},
         helper::is_sell_operation,
+        msg::RouterExecuteMsg,
     };
 
     use super::*;
@@ -399,7 +399,7 @@ pub mod execute {
             owner: collect_tax_addr.to_string(),
             contract: router.to_string(),
             amount: collected_tax_amount,
-            msg: to_json_binary(&ExecuteSwapOperations {
+            msg: to_json_binary(&RouterExecuteMsg::ExecuteSwapOperations {
                 operations,
                 to: Some(collect_tax_addr.to_string()),
                 minimum_receive: None,
