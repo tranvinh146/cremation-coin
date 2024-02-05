@@ -1,5 +1,5 @@
 use cosmwasm_std::{
-    from_json, to_json_binary, Attribute, BankMsg, Binary, Coin, Decimal, Deps, DepsMut, Env,
+    from_json, to_json_binary, Addr, Attribute, BankMsg, Binary, Coin, Decimal, Deps, DepsMut, Env,
     Fraction, MessageInfo, QueryRequest, Reply, Response, StdResult, SubMsg, Uint128, WasmMsg,
     WasmQuery,
 };
@@ -18,7 +18,7 @@ pub const LUNC_TAX: Decimal = Decimal::permille(5);
 
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     _info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -38,6 +38,14 @@ pub fn instantiate(
         .api
         .addr_validate(&msg.development_config.beneficiary)?;
     DEVELOPMENT_FEE_BENEFICIARY.save(deps.storage, &beneficiary)?;
+
+    CACHE.save(
+        deps.storage,
+        &CachedData {
+            locked: false,
+            burner: env.contract.address,
+        },
+    )?;
 
     Ok(Response::default())
 }
@@ -73,10 +81,12 @@ pub fn execute(
                 }
             }
 
-            execute::burn(deps, env, info.sender.to_string(), burn_amount)
+            execute::burn(deps, env, info.sender, burn_amount)
         }
         ExecuteMsg::SetSwapRouter { router } => execute::set_swap_router(deps, env, info, router),
-        ExecuteMsg::SwapAndBurn { denom } => execute::swap_and_burn(deps, env, info, denom),
+        ExecuteMsg::SwapAndBurn { denom, swap_paths } => {
+            execute::swap_and_burn(deps, env, info, denom, swap_paths)
+        }
         ExecuteMsg::Receive(cw20_msg) => execute::receive_cw20(deps, env, info, cw20_msg),
     }
 }
@@ -101,8 +111,12 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractEr
         .query_balance(&env.contract.address, "uluna")
         .unwrap()
         .amount;
-    let recipient: String = from_json(msg.result.unwrap().data.unwrap()).unwrap();
-    execute::burn(deps, env, recipient, burn_amount)
+    let mut cached_data = CACHE.load(deps.storage)?;
+    let burner = cached_data.burner.clone();
+    cached_data.locked = false;
+    CACHE.save(deps.storage, &cached_data)?;
+
+    execute::burn(deps, env.clone(), burner, burn_amount)
 }
 
 mod execute {
@@ -255,7 +269,7 @@ mod execute {
     pub fn burn(
         deps: DepsMut,
         env: Env,
-        recipient: String,
+        recipient: Addr,
         burn_amount: Uint128,
     ) -> Result<Response, ContractError> {
         if burn_amount.is_zero() {
@@ -316,7 +330,7 @@ mod execute {
             reward_msgs.push(WasmMsg::Execute {
                 contract_addr: token.to_string(),
                 msg: to_json_binary(&Cw20ExecuteMsg::Transfer {
-                    recipient: recipient.clone(),
+                    recipient: recipient.to_string(),
                     amount: reward_amount,
                 })
                 .unwrap(),
@@ -357,9 +371,10 @@ mod execute {
 
     pub fn swap_and_burn(
         deps: DepsMut,
-        env: Env,
+        _env: Env,
         info: MessageInfo,
         denom: String,
+        swap_paths: Vec<AssetInfo>,
     ) -> Result<Response, ContractError> {
         let funds = info.funds.clone();
         let mut swap_amount = Uint128::zero();
@@ -369,17 +384,51 @@ mod execute {
                 break;
             }
         }
+        if swap_amount.is_zero() {
+            return Err(ContractError::ZeroAmount {});
+        }
 
-        let swap_operations = RouterExecuteMsg::ExecuteSwapOperations {
-            operations: vec![SwapOperation::TerraPort {
-                offer_asset_info: AssetInfo::NativeToken {
+        let cached_data = CACHE.load(deps.storage)?;
+        if cached_data.locked {
+            return Err(ContractError::Locked {});
+        }
+        CACHE.save(
+            deps.storage,
+            &CachedData {
+                locked: true,
+                burner: info.sender,
+            },
+        )?;
+
+        let tax = swap_amount * LUNC_TAX;
+        let actual_swap_amount = swap_amount - tax;
+
+        let mut operations = vec![];
+        for i in 0..=swap_paths.len() {
+            let offer_asset_info = if i == 0 {
+                AssetInfo::NativeToken {
                     denom: denom.clone(),
-                },
-                ask_asset_info: AssetInfo::NativeToken {
+                }
+            } else {
+                swap_paths[i - 1].clone()
+            };
+
+            let ask_asset_info = if i == swap_paths.len() {
+                AssetInfo::NativeToken {
                     denom: "uluna".to_string(),
-                },
-            }],
-            to: Some(env.contract.address.to_string()),
+                }
+            } else {
+                swap_paths[i].clone()
+            };
+
+            operations.push(SwapOperation::TerraSwap {
+                offer_asset_info,
+                ask_asset_info,
+            });
+        }
+        let swap_operations = RouterExecuteMsg::ExecuteSwapOperations {
+            operations,
+            to: None,
             minimum_receive: None,
             deadline: None,
         };
@@ -390,15 +439,11 @@ mod execute {
             msg: to_json_binary(&swap_operations).unwrap(),
             funds: vec![Coin {
                 denom,
-                amount: swap_amount,
+                amount: actual_swap_amount,
             }],
         };
         let swap_submsg = SubMsg::reply_on_success(swap_wasm_msg, SWAP_REPLY_ID);
-        let recipient = info.sender.to_string();
-
-        Ok(Response::new()
-            .set_data(recipient.as_bytes())
-            .add_submessage(swap_submsg))
+        Ok(Response::new().add_submessage(swap_submsg))
     }
 
     pub fn receive_cw20(
@@ -409,7 +454,19 @@ mod execute {
     ) -> Result<Response, ContractError> {
         let token_in = info.sender;
         let amount = cw20_msg.amount;
-        let recipient = cw20_msg.sender;
+
+        let burner = deps.api.addr_validate(&cw20_msg.sender)?;
+        let cached_data = CACHE.load(deps.storage)?;
+        if cached_data.locked {
+            return Err(ContractError::Locked {});
+        }
+        CACHE.save(
+            deps.storage,
+            &CachedData {
+                locked: true,
+                burner,
+            },
+        )?;
 
         match from_json(&cw20_msg.msg) {
             Ok(Cw20HookMsg::SwapAndBurn { swap_paths }) => {
@@ -431,7 +488,7 @@ mod execute {
                         swap_paths[i].clone()
                     };
 
-                    operations.push(SwapOperation::TerraPort {
+                    operations.push(SwapOperation::TerraSwap {
                         offer_asset_info,
                         ask_asset_info,
                     });
@@ -455,9 +512,7 @@ mod execute {
                 };
                 let cw20_send_submsg = SubMsg::reply_on_success(cw20_send_msg, SWAP_REPLY_ID);
 
-                Ok(Response::new()
-                    .set_data(recipient.as_bytes())
-                    .add_submessage(cw20_send_submsg))
+                Ok(Response::new().add_submessage(cw20_send_submsg))
             }
             Err(err) => Err(ContractError::StdError(err)),
         }

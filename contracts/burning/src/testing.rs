@@ -10,7 +10,7 @@ use cw20_base::contract::{
 use cw_multi_test::{App, ContractWrapper, Executor};
 use std::time::SystemTime;
 
-use crate::{error::ContractError, execute, instantiate, msg::*, query};
+use crate::{contract::LUNC_TAX, error::ContractError, execute, instantiate, msg::*, query};
 
 mod helpers {
     use cosmwasm_std::{
@@ -669,23 +669,27 @@ fn burn_properly() {
         .unwrap();
     let development_fee = burn_amount * development_config.fee_ratio;
     assert_eq!(beneficiary_balance.amount, development_fee);
+    let send_tax = development_fee * LUNC_TAX;
+    let actual_burned_amount = burn_amount - development_fee - send_tax;
+
+    println!("burned amount: {}", burn_amount);
+    println!("send tax: {}", send_tax);
+    println!("development fee: {}", development_fee);
+    println!("actual burned amount: {}", actual_burned_amount);
 
     // check burned amount
     let burned_amount_query: BurnedAmountResponse = app
         .wrap()
         .query_wasm_smart(burning_addr.clone(), &QueryMsg::BurnedAmount {})
         .unwrap();
-    assert_eq!(
-        burned_amount_query.burned_amount,
-        burn_amount - development_fee
-    );
+    assert_eq!(burned_amount_query.burned_amount, actual_burned_amount);
 
     // contract not hold any burned token
     let burn_token_balance = app
         .wrap()
         .query_balance(Addr::unchecked(burning_addr), "uluna")
         .unwrap();
-    assert_eq!(burn_token_balance, coin(0, "uluna"));
+    assert_eq!(burn_token_balance, coin(send_tax.u128(), "uluna")); // tax will be sent in real transaction
 
     // check reward tokens of burner
     for reward in reward_list {
@@ -698,7 +702,6 @@ fn burn_properly() {
                 },
             )
             .unwrap();
-        let actual_burned_amount = burn_amount * (Decimal::one() - development_config.fee_ratio);
         let expected_reward_amount = actual_burned_amount * reward.reward_ratio;
         assert_eq!(reward_token_balance.balance, expected_reward_amount);
     }
@@ -777,22 +780,15 @@ fn burn_not_enough_rewards() {
     let development_fee = burn_amount * development_config.fee_ratio;
     assert_eq!(beneficiary_balance.amount, development_fee);
 
+    let send_tax = development_fee * LUNC_TAX;
+    let actual_burned_amount = burn_amount - development_fee - send_tax;
+
     // check burned amount
     let burned_amount_query: BurnedAmountResponse = app
         .wrap()
         .query_wasm_smart(burning_addr.clone(), &QueryMsg::BurnedAmount {})
         .unwrap();
-    assert_eq!(
-        burned_amount_query.burned_amount,
-        burn_amount - development_fee
-    );
-
-    // contract not hold any burned token
-    let burn_token_balance = app
-        .wrap()
-        .query_balance(Addr::unchecked(burning_addr), "uluna")
-        .unwrap();
-    assert_eq!(burn_token_balance, coin(0, "uluna"));
+    assert_eq!(burned_amount_query.burned_amount, actual_burned_amount);
 
     // check reward tokens of burner
     for reward in reward_list {

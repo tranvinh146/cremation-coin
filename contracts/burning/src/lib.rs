@@ -1,6 +1,9 @@
-use cosmwasm_std::{entry_point, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult};
+use cosmwasm_std::{
+    entry_point, Binary, Deps, DepsMut, Env, MessageInfo, Reply, Response, StdResult,
+};
 use error::ContractError;
 use msg::*;
+use state::{CachedData, CACHE};
 
 pub mod contract;
 pub mod error;
@@ -8,7 +11,15 @@ pub mod msg;
 pub mod state;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> StdResult<Response> {
+pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> StdResult<Response> {
+    CACHE.save(
+        deps.storage,
+        &&CachedData {
+            locked: false,
+            burner: env.contract.address,
+        },
+    )?;
+
     Ok(Response::default())
 }
 
@@ -35,6 +46,11 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     contract::execute(deps, env, info, msg)
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractError> {
+    contract::reply(deps, env, msg)
 }
 
 #[cfg(test)]

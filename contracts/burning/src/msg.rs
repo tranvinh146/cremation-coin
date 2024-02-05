@@ -49,6 +49,7 @@ pub enum ExecuteMsg {
         router: String,
     },
     SwapAndBurn {
+        swap_paths: Vec<AssetInfo>,
         denom: String,
     },
     Receive(Cw20ReceiveMsg),

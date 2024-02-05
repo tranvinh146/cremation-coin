@@ -19,4 +19,6 @@ pub enum ContractError {
     ZeroRatio {},
     #[error("Invalid Reply Message")]
     InvalidReplyMsg {},
+    #[error("Locked")]
+    Locked {},
 }
