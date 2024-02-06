@@ -24,6 +24,15 @@ pub struct FractionFormat {
     pub denominator: Uint128,
 }
 
+impl Default for FractionFormat {
+    fn default() -> Self {
+        Self {
+            numerator: Uint128::zero(),
+            denominator: Uint128::one(),
+        }
+    }
+}
+
 #[cw_serde]
 pub struct TaxInfo {
     pub buy_tax: Option<FractionFormat>,

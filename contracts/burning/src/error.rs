@@ -21,4 +21,6 @@ pub enum ContractError {
     InvalidReplyMsg {},
     #[error("Locked")]
     Locked {},
+    #[error("Already unlocked")]
+    AlreadyUnlocked {},
 }

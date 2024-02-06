@@ -3,11 +3,13 @@ use cosmwasm_std::{
     Fraction, MessageInfo, QueryRequest, Reply, Response, StdResult, SubMsg, Uint128, WasmMsg,
     WasmQuery,
 };
-use cremation_token::msg::{AssetInfo, RouterExecuteMsg, SwapOperation};
+use cremation_token::msg::AssetInfo;
 use cw2::set_contract_version;
 use cw20::{BalanceResponse as Cw20BalanceResponse, Cw20ExecuteMsg, Cw20QueryMsg, Cw20ReceiveMsg};
 
-use crate::{error::ContractError, msg::*, state::OWNER, state::*};
+use crate::{
+    error::ContractError, helpers::create_swap_operations, msg::*, state::OWNER, state::*,
+};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "burning";
@@ -112,6 +114,10 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractEr
         .unwrap()
         .amount;
     let mut cached_data = CACHE.load(deps.storage)?;
+    if !cached_data.locked {
+        return Err(ContractError::AlreadyUnlocked {});
+    }
+
     let burner = cached_data.burner.clone();
     cached_data.locked = false;
     CACHE.save(deps.storage, &cached_data)?;
@@ -400,40 +406,17 @@ mod execute {
             },
         )?;
 
+        let offer_asset = AssetInfo::NativeToken {
+            denom: denom.clone(),
+        };
+        let ask_asset = AssetInfo::NativeToken {
+            denom: "uluna".to_string(),
+        };
+        let swap_operations = create_swap_operations(offer_asset, ask_asset, swap_paths);
+        let swap_router = SWAP_ROUTER.load(deps.storage)?;
         let tax = swap_amount * LUNC_TAX;
         let actual_swap_amount = swap_amount - tax;
 
-        let mut operations = vec![];
-        for i in 0..=swap_paths.len() {
-            let offer_asset_info = if i == 0 {
-                AssetInfo::NativeToken {
-                    denom: denom.clone(),
-                }
-            } else {
-                swap_paths[i - 1].clone()
-            };
-
-            let ask_asset_info = if i == swap_paths.len() {
-                AssetInfo::NativeToken {
-                    denom: "uluna".to_string(),
-                }
-            } else {
-                swap_paths[i].clone()
-            };
-
-            operations.push(SwapOperation::TerraPort {
-                offer_asset_info,
-                ask_asset_info,
-            });
-        }
-        let swap_operations = RouterExecuteMsg::ExecuteSwapOperations {
-            operations,
-            to: None,
-            minimum_receive: None,
-            deadline: None,
-        };
-
-        let swap_router = SWAP_ROUTER.load(deps.storage)?;
         let swap_wasm_msg = WasmMsg::Execute {
             contract_addr: swap_router.to_string(),
             msg: to_json_binary(&swap_operations).unwrap(),
@@ -470,35 +453,13 @@ mod execute {
 
         match from_json(&cw20_msg.msg) {
             Ok(Cw20HookMsg::SwapAndBurn { swap_paths }) => {
-                let mut operations = vec![];
-                for i in 0..=swap_paths.len() {
-                    let offer_asset_info = if i == 0 {
-                        AssetInfo::Token {
-                            contract_addr: token_in.to_string(),
-                        }
-                    } else {
-                        swap_paths[i - 1].clone()
-                    };
-
-                    let ask_asset_info = if i == swap_paths.len() {
-                        AssetInfo::NativeToken {
-                            denom: "uluna".to_string(),
-                        }
-                    } else {
-                        swap_paths[i].clone()
-                    };
-
-                    operations.push(SwapOperation::TerraPort {
-                        offer_asset_info,
-                        ask_asset_info,
-                    });
-                }
-                let swap_operations = RouterExecuteMsg::ExecuteSwapOperations {
-                    operations,
-                    to: None,
-                    minimum_receive: None,
-                    deadline: None,
+                let offer_asset = AssetInfo::Token {
+                    contract_addr: token_in.to_string(),
                 };
+                let ask_asset = AssetInfo::NativeToken {
+                    denom: "uluna".to_string(),
+                };
+                let swap_operations = create_swap_operations(offer_asset, ask_asset, swap_paths);
                 let swap_router = SWAP_ROUTER.load(deps.storage)?;
 
                 let cw20_send_msg = WasmMsg::Execute {
