@@ -421,7 +421,7 @@ mod execute {
                 swap_paths[i].clone()
             };
 
-            operations.push(SwapOperation::TerraSwap {
+            operations.push(SwapOperation::TerraPort {
                 offer_asset_info,
                 ask_asset_info,
             });
@@ -488,7 +488,7 @@ mod execute {
                         swap_paths[i].clone()
                     };
 
-                    operations.push(SwapOperation::TerraSwap {
+                    operations.push(SwapOperation::TerraPort {
                         offer_asset_info,
                         ask_asset_info,
                     });
