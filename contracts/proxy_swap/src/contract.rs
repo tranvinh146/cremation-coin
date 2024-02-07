@@ -16,7 +16,7 @@ pub const LUNC_TAX: Decimal = Decimal::permille(5);
 
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     _info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -25,6 +25,14 @@ pub fn instantiate(
 
     OWNER.save(deps.storage, &owner)?;
     SWAP_ROUTER.save(deps.storage, &swap_router)?;
+    CACHE.save(
+        deps.storage,
+        &CacheData {
+            locked: false,
+            buyer: env.contract.address.clone(),
+            token_address: env.contract.address.clone(),
+        },
+    )?;
 
     Ok(Response::default())
 }
@@ -41,9 +49,7 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractEr
 
     let token = cached_data.token_address.clone();
     cached_data.locked = false;
-    if cached_data.locked {
-        CACHE.save(deps.storage, &cached_data)?;
-    }
+    CACHE.save(deps.storage, &cached_data)?;
 
     let cw20_balance_query = WasmQuery::Smart {
         contract_addr: token.to_string(),
@@ -55,11 +61,11 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractEr
     let balance_res: Cw20BalanceResponse = deps
         .querier
         .query(&QueryRequest::Wasm(cw20_balance_query))?;
-    let buy_amount = balance_res.balance;
+    let swapped_amount = balance_res.balance;
     let token_buy_tax = TOKEN_BUY_TAX
         .load(deps.storage, token.clone())
         .unwrap_or_default();
-    let tax_amount = buy_amount
+    let tax_amount = swapped_amount
         .checked_mul(token_buy_tax.numerator)
         .unwrap()
         .checked_div(token_buy_tax.denominator)
@@ -84,7 +90,18 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractEr
         funds: vec![],
     };
 
+    let token_transfer_msg = WasmMsg::Execute {
+        contract_addr: token.to_string(),
+        msg: to_json_binary(&Cw20ExecuteMsg::Transfer {
+            recipient: cached_data.buyer.to_string(),
+            amount: swapped_amount - tax_amount,
+        })
+        .unwrap(),
+        funds: vec![],
+    };
+
     Ok(Response::new()
+        .add_message(token_transfer_msg)
         .add_message(collect_tax_msg)
         .add_attribute("cw20_tax_amount", tax_amount))
 }
@@ -100,10 +117,10 @@ pub fn execute(
         ExecuteMsg::UpdateSwapRouter { router } => {
             execute::update_swap_router(deps, env, info, router)
         }
-        ExecuteMsg::UpdateTokenBuyTax {
+        ExecuteMsg::SetTokenBuyTax {
             token_address,
             buy_tax,
-        } => execute::update_token_tax_info(deps, env, info, token_address, buy_tax),
+        } => execute::set_token_tax_info(deps, env, info, token_address, buy_tax),
         ExecuteMsg::Swap {
             ask_asset,
             swap_paths,
@@ -159,7 +176,7 @@ pub mod execute {
         Ok(Response::new().add_attribute("swap_router", swap_router))
     }
 
-    pub fn update_token_tax_info(
+    pub fn set_token_tax_info(
         deps: DepsMut,
         _env: Env,
         info: MessageInfo,
@@ -169,6 +186,10 @@ pub mod execute {
         let owner = OWNER.load(deps.storage)?;
         if owner != info.sender {
             return Err(ContractError::Unauthorized {});
+        }
+
+        if buy_tax.denominator.is_zero() || buy_tax.numerator > buy_tax.denominator {
+            return Err(ContractError::InvalidTaxRate {});
         }
 
         let token_address = deps.api.addr_validate(&token_address)?;
@@ -188,13 +209,32 @@ pub mod execute {
         ask_asset: AssetInfo,
         swap_paths: Vec<AssetInfo>,
     ) -> Result<Response, ContractError> {
-        if info.funds.len() == 1 {
+        if info.funds.len() != 1 {
             return Err(ContractError::ExpectOnlyOneCoin {});
         }
         let denom = info.funds[0].denom.clone();
         let swap_amount = info.funds[0].amount;
         if swap_amount.is_zero() {
             return Err(ContractError::ZeroAmount {});
+        }
+
+        match ask_asset.clone() {
+            AssetInfo::Token { contract_addr } => {
+                let cached_data = CACHE.load(deps.storage)?;
+                if cached_data.locked {
+                    return Err(ContractError::Locked {});
+                }
+                let token_address = deps.api.addr_validate(&contract_addr)?;
+                CACHE.save(
+                    deps.storage,
+                    &CacheData {
+                        locked: true,
+                        buyer: info.sender,
+                        token_address,
+                    },
+                )?;
+            }
+            _ => return Err(ContractError::InvalidAskAsset {}),
         }
 
         let offer_asset = AssetInfo::NativeToken {
@@ -228,25 +268,32 @@ pub mod execute {
         let token_in = info.sender;
         let amount = cw20_msg.amount;
 
-        let buyer = deps.api.addr_validate(&cw20_msg.sender)?;
-        let cached_data = CACHE.load(deps.storage)?;
-        if cached_data.locked {
-            return Err(ContractError::Locked {});
-        }
-        CACHE.save(
-            deps.storage,
-            &CacheData {
-                locked: true,
-                buyer,
-                token_address: token_in.clone(),
-            },
-        )?;
-
         match from_json(&cw20_msg.msg) {
             Ok(Cw20HookMsg::Swap {
                 ask_asset,
                 swap_paths,
             }) => {
+                match ask_asset.clone() {
+                    AssetInfo::Token { contract_addr } => {
+                        let cached_data = CACHE.load(deps.storage)?;
+                        if cached_data.locked {
+                            return Err(ContractError::Locked {});
+                        }
+                        let buyer = deps.api.addr_validate(&cw20_msg.sender)?;
+                        println!("buyer: {:?}", buyer);
+                        let token_address = deps.api.addr_validate(&contract_addr)?;
+                        CACHE.save(
+                            deps.storage,
+                            &CacheData {
+                                locked: true,
+                                buyer,
+                                token_address,
+                            },
+                        )?;
+                    }
+                    _ => return Err(ContractError::InvalidAskAsset {}),
+                }
+
                 let offer_asset = AssetInfo::Token {
                     contract_addr: token_in.to_string(),
                 };

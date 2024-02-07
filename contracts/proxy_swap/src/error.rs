@@ -17,4 +17,8 @@ pub enum ContractError {
     ExpectOnlyOneCoin {},
     #[error("Zero Amount")]
     ZeroAmount {},
+    #[error("Invalid Tax Rate")]
+    InvalidTaxRate {},
+    #[error("Invalid Ask Asset")]
+    InvalidAskAsset {},
 }

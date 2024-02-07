@@ -41,8 +41,8 @@ mod helpers {
 
     pub fn mock_cw20_instantiate_msg(initial_balances: Vec<Cw20Coin>) -> Cw20InstantiateMsg {
         Cw20InstantiateMsg {
-            name: "Lenny Coin".to_string(),
-            symbol: "LENNY".to_string(),
+            name: "Cremat Coin".to_string(),
+            symbol: "CREMAT".to_string(),
             decimals: 6,
             initial_balances,
             mint: None,
@@ -140,7 +140,7 @@ fn proper_initialization() {
             transfer_tax: None,
         },
         cw20_instantiate_msg: Cw20InstantiateMsg {
-            name: "Lenny Coin".to_string(),
+            name: "Cremat Coin".to_string(),
             symbol: "CREMAT".to_string(),
             decimals: 6,
             initial_balances: vec![Cw20Coin {
@@ -182,7 +182,7 @@ fn proper_initialization() {
     // check token_info
     let token_info_query = query(deps.as_ref(), mock_env(), QueryMsg::TokenInfo {}).unwrap();
     let token_info_res: TokenInfoResponse = from_json(&token_info_query).unwrap();
-    assert_eq!(token_info_res.name, "Lenny Coin");
+    assert_eq!(token_info_res.name, "Cremat Coin");
     assert_eq!(token_info_res.symbol, "CREMAT");
     assert_eq!(token_info_res.decimals, 6);
     assert_eq!(token_info_res.total_supply, total_supply);

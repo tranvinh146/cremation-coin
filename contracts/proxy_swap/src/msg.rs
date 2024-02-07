@@ -25,7 +25,7 @@ pub enum ExecuteMsg {
     UpdateSwapRouter {
         router: String,
     },
-    UpdateTokenBuyTax {
+    SetTokenBuyTax {
         token_address: String,
         buy_tax: FractionFormat,
     },
