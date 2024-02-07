@@ -1,8 +1,9 @@
 use cosmwasm_std::{
     from_json,
     testing::{mock_dependencies, mock_env, mock_info},
-    to_json_binary, Addr, Coin, CosmosMsg, Reply, SubMsgResponse, SubMsgResult, SystemResult,
-    Uint128, WasmMsg, WasmQuery,
+    testing::{MockApi, MockQuerier, MockStorage},
+    to_json_binary, Addr, Coin, CosmosMsg, Empty, Env, OwnedDeps, Reply, SubMsgResponse,
+    SubMsgResult, SystemResult, Uint128, WasmMsg, WasmQuery,
 };
 use cremation_token::{
     msg::{AssetInfo, CollectTaxAddressResponse, QueryMsg as ExtendedCw20QueryMsg},
@@ -18,6 +19,100 @@ use crate::{
         TokenBuyTaxResponse,
     },
 };
+
+mod helpers {
+    use super::*;
+
+    pub fn setup_contract(
+        deps: &mut OwnedDeps<MockStorage, MockApi, MockQuerier, Empty>,
+        env: Env,
+        owner: &str,
+        swap_router: &str,
+        buy_tax_token: &str,
+        buy_tax: FractionFormat,
+    ) {
+        let info = mock_info("deployer", &[]);
+        let init_msg = InstantiateMsg {
+            owner: owner.to_string(),
+            swap_router: swap_router.to_string(),
+        };
+        instantiate(deps.as_mut(), env.clone(), info, init_msg).unwrap();
+
+        let set_token_buy_tax_info = mock_info(owner, &[]);
+        let set_token_buy_tax_msg = ExecuteMsg::SetTokenBuyTax {
+            token_address: buy_tax_token.to_string(),
+            buy_tax: buy_tax.clone(),
+        };
+        execute(
+            deps.as_mut(),
+            env.clone(),
+            set_token_buy_tax_info,
+            set_token_buy_tax_msg,
+        )
+        .unwrap();
+    }
+
+    pub fn assert_transfer_msg(
+        msg: CosmosMsg,
+        expect_contract_address: &str,
+        expect_funds_len: usize,
+        expect_recipient: &str,
+        expect_amount: Uint128,
+    ) {
+        match msg {
+            CosmosMsg::Wasm(wasm_msg) => match wasm_msg {
+                WasmMsg::Execute {
+                    contract_addr,
+                    msg,
+                    funds,
+                } => {
+                    assert_eq!(contract_addr, expect_contract_address);
+                    assert_eq!(funds.len(), expect_funds_len);
+                    let msg: Cw20ExecuteMsg = from_json(&msg).unwrap();
+                    match msg {
+                        Cw20ExecuteMsg::Transfer { recipient, amount } => {
+                            assert_eq!(recipient, expect_recipient);
+                            assert_eq!(amount, expect_amount);
+                        }
+                        _ => panic!("Unexpected cw20 message"),
+                    }
+                }
+                _ => panic!("Unexpected wasm message"),
+            },
+            _ => panic!("Unexpected sub message"),
+        }
+    }
+
+    pub fn mock_query_extended_cw20_query(
+        deps: &mut OwnedDeps<MockStorage, MockApi, MockQuerier, Empty>,
+        token_address: String,
+        query_address: String,
+        query_balance: Uint128,
+        collect_tax_address: String,
+    ) {
+        deps.querier.update_wasm(move |query| match query {
+            WasmQuery::Smart { contract_addr, msg } => match from_json(&msg).unwrap() {
+                ExtendedCw20QueryMsg::Balance { address } => {
+                    assert_eq!(contract_addr, &token_address);
+                    assert_eq!(address, query_address);
+                    let res = Cw20BalanceResponse {
+                        balance: query_balance,
+                    };
+                    SystemResult::Ok((to_json_binary(&res)).into())
+                }
+                ExtendedCw20QueryMsg::CollectTaxAddress {} => {
+                    assert_eq!(contract_addr, &token_address);
+                    let res = CollectTaxAddressResponse {
+                        collect_tax_address: Addr::unchecked(&collect_tax_address),
+                    };
+                    SystemResult::Ok((to_json_binary(&res)).into())
+                }
+                _ => panic!("DO NOT ENTER HERE"),
+            },
+            _ => panic!("DO NOT ENTER HERE"),
+        });
+    }
+}
 
 #[test]
 fn init_properly() {
@@ -236,35 +331,23 @@ fn set_token_buy_tax_without_authorized() {
 fn swap_native_properly() {
     let mut deps = mock_dependencies();
     let env = mock_env();
-    let info = mock_info("deployer", &[]);
     let owner = "owner";
     let swap_router = "router";
     let token_address = "token_address";
     let buyer = "buyer";
     let collect_tax_address = "collect_tax_address";
-
-    let init_msg = InstantiateMsg {
-        owner: owner.to_string(),
-        swap_router: swap_router.to_string(),
-    };
-    instantiate(deps.as_mut(), env.clone(), info, init_msg).unwrap();
-
     let buy_tax = FractionFormat {
         numerator: Uint128::from(50u64),
         denominator: Uint128::from(100u64),
     };
-    let set_token_buy_tax_info = mock_info(owner, &[]);
-    let set_token_buy_tax_msg = ExecuteMsg::SetTokenBuyTax {
-        token_address: token_address.to_string(),
-        buy_tax: buy_tax.clone(),
-    };
-    execute(
-        deps.as_mut(),
+    helpers::setup_contract(
+        &mut deps,
         env.clone(),
-        set_token_buy_tax_info,
-        set_token_buy_tax_msg,
-    )
-    .unwrap();
+        owner,
+        swap_router,
+        token_address,
+        buy_tax.clone(),
+    );
 
     let swap_info = mock_info(
         buyer,
@@ -307,32 +390,15 @@ fn swap_native_properly() {
         _ => panic!("Unexpected sub message"),
     }
 
-    let swapped_amount = Uint128::from(1_000_000u128);
-
     // Mock query
-    let query_env = env.clone();
-    let query_swapped_amount = swapped_amount.clone();
-    deps.querier.update_wasm(move |query| match query {
-        WasmQuery::Smart { contract_addr, msg } => match from_json(&msg).unwrap() {
-            ExtendedCw20QueryMsg::Balance { address } => {
-                assert_eq!(contract_addr, token_address);
-                assert_eq!(address, query_env.contract.address);
-                let res = Cw20BalanceResponse {
-                    balance: query_swapped_amount,
-                };
-                SystemResult::Ok((to_json_binary(&res)).into())
-            }
-            ExtendedCw20QueryMsg::CollectTaxAddress {} => {
-                assert_eq!(contract_addr, "token_address");
-                let res = CollectTaxAddressResponse {
-                    collect_tax_address: Addr::unchecked(collect_tax_address),
-                };
-                SystemResult::Ok((to_json_binary(&res)).into())
-            }
-            _ => panic!("DO NOT ENTER HERE"),
-        },
-        _ => panic!("DO NOT ENTER HERE"),
-    });
+    let swapped_amount = Uint128::from(1_000_000u128);
+    helpers::mock_query_extended_cw20_query(
+        &mut deps,
+        token_address.to_string(),
+        env.contract.address.to_string(),
+        swapped_amount,
+        collect_tax_address.to_string(),
+    );
 
     // call reply
     let res = reply(
@@ -350,50 +416,22 @@ fn swap_native_properly() {
 
     // expect transfer to collect tax address
     let tax_amount = swapped_amount * buy_tax.numerator / buy_tax.denominator;
-    match res.messages[0].msg.clone() {
-        CosmosMsg::Wasm(wasm_msg) => match wasm_msg {
-            WasmMsg::Execute {
-                contract_addr,
-                msg,
-                funds,
-            } => {
-                assert_eq!(contract_addr, token_address);
-                assert_eq!(funds.len(), 0);
-                let msg: Cw20ExecuteMsg = from_json(&msg).unwrap();
-                match msg {
-                    Cw20ExecuteMsg::Transfer { recipient, amount } => {
-                        assert_eq!(recipient, buyer);
-                        assert_eq!(amount, swapped_amount - tax_amount);
-                    }
-                    _ => panic!("Unexpected cw20 message"),
-                }
-            }
-            _ => panic!("Unexpected wasm message"),
-        },
-        _ => panic!("Unexpected sub message"),
-    }
-    match res.messages[1].msg.clone() {
-        CosmosMsg::Wasm(wasm_msg) => match wasm_msg {
-            WasmMsg::Execute {
-                contract_addr,
-                msg,
-                funds,
-            } => {
-                assert_eq!(contract_addr, token_address);
-                assert_eq!(funds.len(), 0);
-                let msg: Cw20ExecuteMsg = from_json(&msg).unwrap();
-                match msg {
-                    Cw20ExecuteMsg::Transfer { recipient, amount } => {
-                        assert_eq!(recipient, collect_tax_address);
-                        assert_eq!(amount, tax_amount);
-                    }
-                    _ => panic!("Unexpected cw20 message"),
-                }
-            }
-            _ => panic!("Unexpected wasm message"),
-        },
-        _ => panic!("Unexpected sub message"),
-    }
+    let transfer_cw20_msg = res.messages[0].msg.clone();
+    helpers::assert_transfer_msg(
+        transfer_cw20_msg,
+        token_address,
+        0,
+        buyer,
+        swapped_amount - tax_amount,
+    );
+    let collect_cw20_tax_msg = res.messages[1].msg.clone();
+    helpers::assert_transfer_msg(
+        collect_cw20_tax_msg,
+        token_address,
+        0,
+        collect_tax_address,
+        tax_amount,
+    );
 
     let attrs = res
         .attributes
@@ -407,36 +445,24 @@ fn swap_native_properly() {
 fn swap_cw20_properly() {
     let mut deps = mock_dependencies();
     let env = mock_env();
-    let info = mock_info("deployer", &[]);
     let owner = "owner";
     let swap_router = "router";
     let buyer = "buyer";
     let offer_token_address = "offer_token_address";
     let ask_token_address = "ask_token_address";
     let collect_tax_address = "collect_tax_address";
-
-    let init_msg = InstantiateMsg {
-        owner: owner.to_string(),
-        swap_router: swap_router.to_string(),
-    };
-    instantiate(deps.as_mut(), env.clone(), info, init_msg).unwrap();
-
     let buy_tax = FractionFormat {
-        numerator: Uint128::from(50u64),
+        numerator: Uint128::from(30u64),
         denominator: Uint128::from(100u64),
     };
-    let set_token_buy_tax_info = mock_info(owner, &[]);
-    let set_token_buy_tax_msg = ExecuteMsg::SetTokenBuyTax {
-        token_address: ask_token_address.to_string(),
-        buy_tax: buy_tax.clone(),
-    };
-    execute(
-        deps.as_mut(),
+    helpers::setup_contract(
+        &mut deps,
         env.clone(),
-        set_token_buy_tax_info,
-        set_token_buy_tax_msg,
-    )
-    .unwrap();
+        owner,
+        swap_router,
+        ask_token_address,
+        buy_tax.clone(),
+    );
 
     let swap_msg = ExecuteMsg::Receive(Cw20ReceiveMsg {
         amount: Uint128::from(100u128),
@@ -471,32 +497,15 @@ fn swap_cw20_properly() {
         _ => panic!("Unexpected sub message"),
     }
 
-    let swapped_amount = Uint128::from(1_000_000u128);
-
     // Mock query
-    let query_env = env.clone();
-    let query_swapped_amount = swapped_amount.clone();
-    deps.querier.update_wasm(move |query| match query {
-        WasmQuery::Smart { contract_addr, msg } => match from_json(&msg).unwrap() {
-            ExtendedCw20QueryMsg::Balance { address } => {
-                assert_eq!(contract_addr, ask_token_address);
-                assert_eq!(address, query_env.contract.address);
-                let res = Cw20BalanceResponse {
-                    balance: query_swapped_amount,
-                };
-                SystemResult::Ok((to_json_binary(&res)).into())
-            }
-            ExtendedCw20QueryMsg::CollectTaxAddress {} => {
-                assert_eq!(contract_addr, ask_token_address);
-                let res = CollectTaxAddressResponse {
-                    collect_tax_address: Addr::unchecked(collect_tax_address),
-                };
-                SystemResult::Ok((to_json_binary(&res)).into())
-            }
-            _ => panic!("DO NOT ENTER HERE"),
-        },
-        _ => panic!("DO NOT ENTER HERE"),
-    });
+    let swapped_amount = Uint128::from(1_000_000u128);
+    helpers::mock_query_extended_cw20_query(
+        &mut deps,
+        ask_token_address.to_string(),
+        env.contract.address.to_string(),
+        swapped_amount,
+        collect_tax_address.to_string(),
+    );
 
     // call reply
     let res = reply(
@@ -514,50 +523,22 @@ fn swap_cw20_properly() {
 
     // expect transfer to collect tax address
     let tax_amount = swapped_amount * buy_tax.numerator / buy_tax.denominator;
-    match res.messages[0].msg.clone() {
-        CosmosMsg::Wasm(wasm_msg) => match wasm_msg {
-            WasmMsg::Execute {
-                contract_addr,
-                msg,
-                funds,
-            } => {
-                assert_eq!(contract_addr, ask_token_address);
-                assert_eq!(funds.len(), 0);
-                let msg: Cw20ExecuteMsg = from_json(&msg).unwrap();
-                match msg {
-                    Cw20ExecuteMsg::Transfer { recipient, amount } => {
-                        assert_eq!(recipient, buyer);
-                        assert_eq!(amount, swapped_amount - tax_amount);
-                    }
-                    _ => panic!("Unexpected cw20 message"),
-                }
-            }
-            _ => panic!("Unexpected wasm message"),
-        },
-        _ => panic!("Unexpected sub message"),
-    }
-    match res.messages[1].msg.clone() {
-        CosmosMsg::Wasm(wasm_msg) => match wasm_msg {
-            WasmMsg::Execute {
-                contract_addr,
-                msg,
-                funds,
-            } => {
-                assert_eq!(contract_addr, ask_token_address);
-                assert_eq!(funds.len(), 0);
-                let msg: Cw20ExecuteMsg = from_json(&msg).unwrap();
-                match msg {
-                    Cw20ExecuteMsg::Transfer { recipient, amount } => {
-                        assert_eq!(recipient, collect_tax_address);
-                        assert_eq!(amount, tax_amount);
-                    }
-                    _ => panic!("Unexpected cw20 message"),
-                }
-            }
-            _ => panic!("Unexpected wasm message"),
-        },
-        _ => panic!("Unexpected sub message"),
-    }
+    let transfer_cw20_msg = res.messages[0].msg.clone();
+    helpers::assert_transfer_msg(
+        transfer_cw20_msg,
+        ask_token_address,
+        0,
+        buyer,
+        swapped_amount - tax_amount,
+    );
+    let collect_cw20_tax_msg = res.messages[1].msg.clone();
+    helpers::assert_transfer_msg(
+        collect_cw20_tax_msg,
+        ask_token_address,
+        0,
+        collect_tax_address,
+        tax_amount,
+    );
 
     let attrs = res
         .attributes
