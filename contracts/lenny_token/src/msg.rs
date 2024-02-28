@@ -34,6 +34,10 @@ pub enum ExecuteMsg {
         dex: Dex,
         pair_addresses: Vec<String>,
     },
+    RemovePair {
+        dex: Dex,
+        pair_address: String,
+    },
     UpdateCollectTaxAddress {
         new_collect_tax_addr: String,
     },

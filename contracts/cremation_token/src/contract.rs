@@ -75,6 +75,9 @@ pub fn execute(
             dex,
             pair_addresses,
         } => execute::add_new_pairs(deps, env, info, dex, pair_addresses),
+        ExecuteMsg::RemovePair { dex, pair_address } => {
+            execute::remove_pair(deps, env, info, dex, pair_address)
+        }
         ExecuteMsg::UpdateCollectTaxAddress {
             new_collect_tax_addr,
         } => execute::update_collecting_tax_address(deps, env, info, new_collect_tax_addr),
@@ -196,10 +199,53 @@ pub mod execute {
         let mut dex_configs = DEX_CONFIGS.load(deps.storage).unwrap();
         match dex {
             Dex::Terraswap => {
+                for pair in &pairs_addresses {
+                    if dex_configs.terraswap_pairs.contains(pair) {
+                        return Err(StdError::generic_err("Pair already exists").into());
+                    }
+                }
                 dex_configs.terraswap_pairs.extend(pairs_addresses);
             }
             Dex::Terraport => {
+                for pair in &pairs_addresses {
+                    if dex_configs.terraport_pairs.contains(pair) {
+                        return Err(StdError::generic_err("Pair already exists").into());
+                    }
+                }
                 dex_configs.terraport_pairs.extend(pairs_addresses);
+            }
+        }
+        DEX_CONFIGS.save(deps.storage, &dex_configs)?;
+
+        Ok(Response::new())
+    }
+
+    pub fn remove_pair(
+        deps: DepsMut,
+        _env: Env,
+        info: MessageInfo,
+        dex: Dex,
+        pair_address: String,
+    ) -> Result<Response, ContractError> {
+        let owner = OWNER.load(deps.storage).unwrap();
+        if info.sender != owner {
+            return Err(ContractError::Unauthorized {});
+        }
+
+        let pair_address = deps.api.addr_validate(&pair_address)?;
+        let mut dex_configs = DEX_CONFIGS.load(deps.storage).unwrap();
+        match dex {
+            Dex::Terraswap => {
+                if !dex_configs.terraswap_pairs.contains(&pair_address) {
+                    return Err(StdError::generic_err("Pair does not exist").into());
+                }
+                dex_configs.terraswap_pairs.retain(|x| x != &pair_address);
+            }
+            Dex::Terraport => {
+                if !dex_configs.terraport_pairs.contains(&pair_address) {
+                    return Err(StdError::generic_err("Pair does not exist").into());
+                }
+                dex_configs.terraport_pairs.retain(|x| x != &pair_address);
             }
         }
         DEX_CONFIGS.save(deps.storage, &dex_configs)?;

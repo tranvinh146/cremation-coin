@@ -5,7 +5,6 @@ use msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
 
 pub mod contract;
 pub mod msg;
-pub mod state;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> StdResult<Response> {
