@@ -100,10 +100,14 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractEr
         funds: vec![],
     };
 
-    Ok(Response::new()
-        .add_message(token_transfer_msg)
-        .add_message(collect_tax_msg)
-        .add_attribute("cw20_tax_amount", tax_amount))
+    if tax_amount.is_zero() {
+        Ok(Response::new().add_message(token_transfer_msg))
+    } else {
+        Ok(Response::new()
+            .add_message(token_transfer_msg)
+            .add_message(collect_tax_msg)
+            .add_attribute("cw20_tax_amount", tax_amount))
+    }
 }
 
 pub fn execute(

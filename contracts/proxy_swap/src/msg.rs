@@ -4,6 +4,9 @@ use cremation_token::{msg::AssetInfo, state::FractionFormat};
 use cw20::Cw20ReceiveMsg;
 
 #[cw_serde]
+pub struct MigrateMsg {}
+
+#[cw_serde]
 pub enum Cw20HookMsg {
     Swap {
         ask_asset: AssetInfo,
