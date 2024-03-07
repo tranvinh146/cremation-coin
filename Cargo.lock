@@ -705,6 +705,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "lenny-burning"
+version = "0.1.0"
+dependencies = [
+ "cosmwasm-schema",
+ "cosmwasm-std",
+ "cw-multi-test",
+ "cw-storage-plus 1.2.0",
+ "cw2 1.1.2",
+ "cw20 1.1.2",
+ "cw20-base",
+ "schemars",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "lenny-token"
 version = "1.0.0"
 dependencies = [
